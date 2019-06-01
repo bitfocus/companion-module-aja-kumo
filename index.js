@@ -104,12 +104,10 @@ switch (id) {
 
 	case 'route':
 		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}_Status&value=${action.options.source}`;
-		console.log(cmd);
 		break;
 
 	case 'salvo':
 		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=[ID]${action.options.salvo}`;
-		console.log(cmd);
 		break;
 }
 		self.system.emit('rest_get', cmd, function (err, result) {
