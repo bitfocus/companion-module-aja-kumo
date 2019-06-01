@@ -79,6 +79,18 @@ instance.prototype.actions = function(system) {
 					regex: self.REGEX_NUMBER
 				}
 			]
+		},
+		'salvo': {
+			label: 'Send salvo command',
+			options: [
+				{
+					type: 'textinput',
+					label: 'salvo',
+					id: 'salvo',
+					default: '1',
+					regex: self.REGEX_NUMBER
+				}
+			]
 		}
 	});
 }
@@ -92,6 +104,11 @@ switch (id) {
 
 	case 'route':
 		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}_Status&value=${action.options.source}`;
+		console.log(cmd);
+		break;
+
+	case 'salvo':
+		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=[ID]${action.options.salvo}`;
 		console.log(cmd);
 		break;
 }
