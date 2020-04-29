@@ -107,7 +107,7 @@ switch (id) {
 		break;
 
 	case 'salvo':
-		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=[ID]${action.options.salvo}`;
+		cmd = `http://${self.config.ip}/config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=${action.options.salvo}`;
 		break;
 }
 		self.system.emit('rest_get', cmd, function (err, result) {
