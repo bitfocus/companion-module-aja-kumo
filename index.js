@@ -15,6 +15,7 @@ class instance extends instance_skel {
 
 		this.init()
 		this.selectedDestination = null
+		this.selectedSource = null
 	}
 
 	updateConfig(config) {
@@ -70,14 +71,13 @@ class instance extends instance_skel {
 			case 'destination':
 				this.selectedDestination = action.options.destination
 				this.setVariable('destination', action.options.destination)
+				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}`
 				break
-
-			case 'sourceToDestination':
-				if (this.selectedDestination) {
-					cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}_Status&value=${action.options.source}`
-				} else {
-					this.log('error', 'Select destination first')
-				}
+				
+			case 'source':
+				this.selectedSource = action.options.source
+				this.setVariable('source', action.options.source)
+				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Source${action.options.source}`
 				break
 
 			case 'route':
@@ -89,6 +89,7 @@ class instance extends instance_skel {
 				break
 		}
 		this.checkFeedbacks('active_destination')
+		this.checkFeedbacks('active_source')
 		this.system.emit('rest_get', cmd, (err, result) => {
 			if (err !== null) {
 				this.log('error', 'HTTP GET Request failed (' + result.error.code + ')')
@@ -100,9 +101,10 @@ class instance extends instance_skel {
 	}
 
 	initVariables() {
-		let variables = [{ name: 'destination', label: 'Selected Destination' }]
+		let variables = [{ name: 'destination', label: 'Selected Destination' },{ name: 'source', label: 'Selected Source' }]
 		this.setVariableDefinitions(variables)
 		this.setVariable('destination', 'Not yet selected')
+		this.setVariable('source', 'Not yet selected')
 	}
 
 	/**

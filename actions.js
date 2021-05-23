@@ -33,8 +33,8 @@ exports.getActions = function () {
 			}
 		]
 	}
-	actions['sourceToDestination'] = {
-		label: 'Select source to active destination',
+	actions['source'] = {
+		label: 'Select source',
 		options: [
 			{
 				type: 'number',

@@ -29,6 +29,21 @@ exports.initFeedbacks = function() {
 			}
 		]
 	};
+	
+	feedbacks.active_source = {
+		label: 'Change color for active source',
+		description: 'When user select a different source, background color will change',
+		options: [
+			foregroundColor,
+			backgroundColorProgram,
+			{
+				type: 'number',
+				label: 'Source number',
+				id: 'source',
+				default: 1
+			}
+		]
+	};
 
 	return feedbacks;
 
@@ -37,6 +52,15 @@ exports.initFeedbacks = function() {
 exports.executeFeedback = function (feedback, bank) {
 	if(feedback.type === 'active_destination') {
 		if(this.selectedDestination == feedback.options.destination) {
+			return {
+				color: feedback.options.fg,
+				bgcolor: feedback.options.bg
+			};
+		}
+	}
+	
+	if(feedback.type === 'active_source') {
+		if(this.selectedSource == feedback.options.source) {
 			return {
 				color: feedback.options.fg,
 				bgcolor: feedback.options.bg
