@@ -34,7 +34,7 @@ exports.getActions = function () {
 		]
 	}
 	actions['source'] = {
-		label: 'Select source',
+		label: 'Send source to previous selected destination',
 		options: [
 			{
 				type: 'number',

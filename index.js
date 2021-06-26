@@ -71,13 +71,16 @@ class instance extends instance_skel {
 			case 'destination':
 				this.selectedDestination = action.options.destination
 				this.setVariable('destination', action.options.destination)
-				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}`
 				break
 				
 			case 'source':
 				this.selectedSource = action.options.source
 				this.setVariable('source', action.options.source)
-				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Source${action.options.source}`
+				this.getVariable('destination', destination => {
+					if(destination) {
+						cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${destination}_Status&value=${action.options.source}`
+					}
+				})
 				break
 
 			case 'route':
