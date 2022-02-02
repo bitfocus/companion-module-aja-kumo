@@ -18,5 +18,9 @@
 		"url": "git+https://github.com/bitfocus/companion-module-aja-kumo.git"
 	},
 	"author": "Jeffrey Davidsz <jeffrey.davidsz@vicreo.eu>",
-	"license": "MIT"
+	"license": "MIT",
+	"homepage": "https://github.com/bitfocus/companion-module-aja-kumo#readme",
+	"bugs": {
+		"url": "https://github.com/bitfocus/companion-module-aja-kumo/issues"
+	}
 }
