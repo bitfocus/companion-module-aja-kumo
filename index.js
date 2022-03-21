@@ -12,10 +12,36 @@ class instance extends instance_skel {
 		Object.assign(this, {
 			...actions
 		})
+	}
 
-		this.init()
-		this.selectedDestination = null
-		this.selectedSource = null
+	watchForNewEvents() {
+		if (this.connectionId === null) {
+			return // Do not attempt to connect to a disabled connection
+		}
+		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
+		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
+			this._connectionAttempt = null
+			if (this.connectionId === null) {
+				return
+			}
+
+			if (err !== null || response.response.statusCode !== 200) {
+				this.disconnect()
+			} else {
+				let parsedResponse = JSON.parse(response.data.toString());
+				if (Array.isArray(parsedResponse)) {
+					parsedResponse.forEach((x) => {
+						if(x.param_id) {
+							let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
+							if (dest_update !== null) {
+								this.setVariable(`destination_${dest_update[1]}`, x.int_value)
+							}
+						}
+					})
+				}
+				this.watchForNewEvents()
+			}
+		});
 	}
 
 	updateConfig(config) {
@@ -48,18 +74,13 @@ class instance extends instance_skel {
 		if(this.config.ip) {
 			this.connect()
 		}
-		//this.initVariables()
 	}
 
 	disconnect() {
+		this.connectionId = null
 		if (this._connectionAttempt) {
-			this._connectionAttempt.abort()
 			this._connectionAttempt = null
 		}
-		// Abort any open route refreshes
-		this.routeRefresh.every((x) => !x || x.abort())
-
-		this.connectionId = null
 	}
 
 	connect() {
@@ -68,6 +89,10 @@ class instance extends instance_skel {
 
 		let url = `http://${this.config.ip}/config?action=connect&configid=0`
 		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
+			if (this._connectionAttempt === null) {
+				return;
+			}
+
 			this._connectionAttempt = null;
 			if (err !== null || response.response.statusCode !== 200) {
 				this.connectionId = null
@@ -79,6 +104,7 @@ class instance extends instance_skel {
 
 				this.initalizeAllRoutes()
 				this.initVariables()
+				this.watchForNewEvents()
 			}
 		})
 	}
@@ -144,7 +170,7 @@ class instance extends instance_skel {
 
 	// When module gets deleted
 	destroy() {
-		debug('destroy')
+		this.disconnect()
 	}
 
 	actions(system) {
