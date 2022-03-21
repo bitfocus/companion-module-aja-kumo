@@ -19,38 +19,126 @@ class instance extends instance_skel {
 	}
 
 	updateConfig(config) {
+		if (this.connectionId !== null) {
+			this.disconnect()
+		}
+
 		this.config = config
-		this.actions()
-		this.init_feedbacks()
-		this.initVariables()
+
+		this.init();
+
+		//this.actions()
+		//this.init_feedbacks()
+		//this.initVariables()
 	}
 
 	init() {
-		this.status(this.STATE_OK)
-		debug = this.debug
-		log = this.log
-		this.actions()
-		this.init_feedbacks()
-		this.initVariables()
+		this.status(this.STATUS_UNKNOWN)
+
+		this.connectionId = null
+
+		this.selectedDestination = null
+		this.selectedSource = null
+		this.routeRefresh = []
+		this.variables = [
+			{ name: 'destination', label: 'Currently selected destination' },
+			{ name: 'source', label: 'Currently selected source' }
+		]
+
+		if(this.config.ip) {
+			this.connect()
+		}
+		//this.initVariables()
+	}
+
+	disconnect() {
+		if (this._connectionAttempt) {
+			this._connectionAttempt.abort()
+			this._connectionAttempt = null
+		}
+		// Abort any open route refreshes
+		this.routeRefresh.every((x) => !x || x.abort())
+
+		this.connectionId = null
+	}
+
+	connect() {
+		if (!this.config.input_count) this.config.input_count = 16
+		if (!this.config.output_count) this.config.output_count = 4
+
+		let url = `http://${this.config.ip}/config?action=connect&configid=0`
+		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
+			this._connectionAttempt = null;
+			if (err !== null || response.response.statusCode !== 200) {
+				this.connectionId = null
+				this.status(this.STATUS_ERROR)
+			} else {
+				let parsedResponse = JSON.parse(response.data.toString());
+				this.connectionId = parsedResponse.connectionid
+				this.status(this.STATUS_OK, `Connection ID ${this.connectionId}`)
+
+				this.initalizeAllRoutes()
+				this.initVariables()
+			}
+		})
+	}
+
+	initalizeAllRoutes() {
+		for (let i = 1; i <= this.config.output_count; ++i) {
+			this.variables.push({
+				name: `destination_${i}`,
+				label: `Destination ${i} source`
+			})
+
+			this.refreshRoute(i)
+		}
+	}
+
+	refreshRoute(output) {
+		const connectionId = this.connectionId
+		const url = `http://${this.config.ip}/config?action=get&configid=0&paramid=eParamID_XPT_Destination${output}_Status`;
+
+		this.routeRefresh[output] = this.system.emit('rest_get', url, (err, response) => {
+			// Make sure we're consistent before updating anything, these should be aborted, but just in case not...
+			if (connectionId !== this.connectionId) return;
+
+			if (err !== null || response.response.statusCode !== 200) {
+				this.status(this.STATUS_WARNING, 'Error getting route status')
+			} else {
+				delete this.routeRefresh[output]
+				let parsedResponse = JSON.parse(response.data.toString());
+				this.setVariable(`destination_${output}`, parsedResponse.value)
+			}
+		})
 	}
 
 	// Return config fields for web config
 	config_fields() {
 		return [
 			{
-				type: 'text',
-				id: 'info',
-				width: 12,
-				label: 'Information',
-				value: 'Set the IP here of your Kumo router',
-			},
-			{
 				type: 'textinput',
 				id: 'ip',
 				label: 'IP Address',
+				tooltip: 'Set the IP here of your Kumo router',
 				regex: this.REGEX_IP,
 				width: 12,
 			},
+			{
+				type: 'textinput',
+				label: 'Input Count',
+				id: 'input_count',
+				default: 16,
+				tooltip: 'Number of inputs the router has.',
+				regex: this.REGEX_NUMBER
+			},
+			{
+				type: 'textinput',
+				label: 'Output Count',
+				id: 'output_count',
+				default: 4,
+				tooltip: 'Number of destinations the router has.',
+				regex: this.REGEX_NUMBER
+			}
 		]
 	}
 
@@ -104,8 +192,7 @@ class instance extends instance_skel {
 	}
 
 	initVariables() {
-		let variables = [{ name: 'destination', label: 'Selected Destination' },{ name: 'source', label: 'Selected Source' }]
-		this.setVariableDefinitions(variables)
+		this.setVariableDefinitions(this.variables)
 		this.setVariable('destination', 'Not yet selected')
 		this.setVariable('source', 'Not yet selected')
 	}
