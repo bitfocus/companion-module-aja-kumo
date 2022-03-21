@@ -1,6 +1,6 @@
 const instance_skel = require('../../instance_skel')
 const actions = require('./actions')
-const { executeFeedback, initFeedbacks } = require('./feedbacks')
+const feedbacks = require('./feedbacks')
 
 let debug
 let log
@@ -9,9 +9,21 @@ class instance extends instance_skel {
 	constructor(system, id, config) {
 		super(system, id, config)
 
+		// @todo this.defineConst('RECONNECT_TIME', 5);
+
 		Object.assign(this, {
-			...actions
+			...actions,
+			...feedbacks
 		})
+	}
+
+	static GetUpgradeScripts() {
+		return [
+			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
+				'active_destination': true,
+				'active_source': true,
+			})
+		]
 	}
 
 	watchForNewEvents() {
@@ -34,7 +46,7 @@ class instance extends instance_skel {
 						if(x.param_id) {
 							let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
 							if (dest_update !== null) {
-								this.setVariable(`destination_${dest_update[1]}`, x.int_value)
+								this.setSrcToDest(dest_update[1], x.int_value)
 							}
 						}
 					})
@@ -52,20 +64,19 @@ class instance extends instance_skel {
 		this.config = config
 
 		this.init();
-
-		//this.actions()
-		//this.init_feedbacks()
-		//this.initVariables()
 	}
 
 	init() {
 		this.status(this.STATUS_UNKNOWN)
+		this.actions()
+		this.initFeedbacks()
 
 		this.connectionId = null
 
 		this.selectedDestination = null
 		this.selectedSource = null
 		this.routeRefresh = []
+		this.srcToDestMap = [];
 		this.variables = [
 			{ name: 'destination', label: 'Currently selected destination' },
 			{ name: 'source', label: 'Currently selected source' }
@@ -83,7 +94,15 @@ class instance extends instance_skel {
 		}
 	}
 
+	setSrcToDest(dest, src) {
+		if (dest in this.srcToDestMap && this.srcToDestMap[dest] === src) return // #nothingchanged
+		this.srcToDestMap[dest] = src
+		this.setVariable(`destination_${dest}`, src)
+		this.checkFeedbacks('destination_match')
+	}
+
 	connect() {
+		this.status(this.STATUS_WARNING, 'Connecting...');
 		if (!this.config.input_count) this.config.input_count = 16
 		if (!this.config.output_count) this.config.output_count = 4
 
@@ -133,7 +152,7 @@ class instance extends instance_skel {
 			} else {
 				delete this.routeRefresh[output]
 				let parsedResponse = JSON.parse(response.data.toString());
-				this.setVariable(`destination_${output}`, parsedResponse.value)
+				this.setSrcToDest(output, parsedResponse.value)
 			}
 		})
 	}
@@ -221,23 +240,6 @@ class instance extends instance_skel {
 		this.setVariableDefinitions(this.variables)
 		this.setVariable('destination', 'Not yet selected')
 		this.setVariable('source', 'Not yet selected')
-	}
-
-	/**
-	 * Set available feedback choices
-	 */
-	init_feedbacks() {
-		const feedbacks = initFeedbacks.bind(this)()
-		this.setFeedbackDefinitions(feedbacks)
-	}
-
-	/**
-	 * Execute feedback
-	 * @param  {} feedback
-	 * @param  {} bank
-	 */
-	feedback(feedback, bank) {
-		return executeFeedback.bind(this)(feedback, bank)
 	}
 }
 exports = module.exports = instance
