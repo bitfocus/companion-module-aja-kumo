@@ -1,6 +1,6 @@
 const instance_skel = require('../../instance_skel')
 const actions = require('./actions')
-const { executeFeedback, initFeedbacks } = require('./feedbacks')
+const feedbacks = require('./feedbacks')
 
 let debug
 let log
@@ -9,54 +9,197 @@ class instance extends instance_skel {
 	constructor(system, id, config) {
 		super(system, id, config)
 
-		Object.assign(this, {
-			...actions
-		})
+		this.defineConst('RECONNECT_TIME', 5); // Attempt a reconnect every 5 seconds
 
-		this.init()
-		this.selectedDestination = null
-		this.selectedSource = null
+		Object.assign(this, {
+			...actions,
+			...feedbacks
+		})
+	}
+
+	static GetUpgradeScripts() {
+		return [
+			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
+				'active_destination': true,
+				'active_source': true,
+			})
+		]
+	}
+
+	watchForNewEvents() {
+		if (this.connectionId === null) {
+			return // Do not attempt to connect to a disabled connection
+		}
+		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
+		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
+			this._connectionAttempt = null
+			if (this.connectionId === null) {
+				return
+			}
+
+			if (err !== null || response.response.statusCode !== 200) {
+				this.disconnect(true)
+			} else {
+				let parsedResponse = JSON.parse(response.data.toString());
+				if (Array.isArray(parsedResponse)) {
+					parsedResponse.forEach((x) => {
+						if(x.param_id) {
+							let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
+							if (dest_update !== null) {
+								this.setSrcToDest(dest_update[1], x.int_value)
+							}
+						}
+					})
+				}
+				this.watchForNewEvents()
+			}
+		});
 	}
 
 	updateConfig(config) {
+		this.disconnect()
+
 		this.config = config
-		this.actions()
-		this.init_feedbacks()
-		this.initVariables()
+
+		this.init();
 	}
 
 	init() {
-		this.status(this.STATE_OK)
-		debug = this.debug
-		log = this.log
+		this.status(this.STATUS_UNKNOWN)
 		this.actions()
-		this.init_feedbacks()
-		this.initVariables()
+		this.initFeedbacks()
+
+		this.connectionId = null
+
+		this.selectedDestination = null
+		this.selectedSource = null
+		this.reconnectTimeout = null
+		this.routeRefresh = []
+		this.srcToDestMap = [];
+		this.variables = [
+			{ name: 'destination', label: 'Currently selected destination' },
+			{ name: 'source', label: 'Currently selected source' }
+		]
+
+		if(this.config.ip) {
+			this.connect()
+		}
+	}
+
+	disconnect(reconnect = false) {
+		this.status(this.STATUS_ERROR, 'Disconnected')
+
+		this.connectionId = null
+		if (this._connectionAttempt) {
+			this._connectionAttempt = null
+		}
+
+		if (this.reconnectTimeout) {
+			clearTimeout(this.reconnectTimeout)
+		}
+
+		if (reconnect) {
+			this.reconnectTimeout = setTimeout(this.connect.bind(this), this.RECONNECT_TIME * 1000)
+		}
+	}
+
+	setSrcToDest(dest, src) {
+		if (dest in this.srcToDestMap && this.srcToDestMap[dest] === src) return // #nothingchanged
+		this.srcToDestMap[dest] = src
+		this.setVariable(`destination_${dest}`, src)
+		this.checkFeedbacks('destination_match')
+	}
+
+	connect() {
+		this.status(this.STATUS_WARNING, 'Connecting...');
+		if (!this.config.input_count) this.config.input_count = 16
+		if (!this.config.output_count) this.config.output_count = 4
+
+		let url = `http://${this.config.ip}/config?action=connect&configid=0`
+		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
+			if (this._connectionAttempt === null) {
+				return;
+			}
+
+			this._connectionAttempt = null;
+			if (err !== null || response.response.statusCode !== 200) {
+				this.status(this.STATUS_ERROR)
+				this.disconnect(true)
+			} else {
+				let parsedResponse = JSON.parse(response.data.toString());
+				this.connectionId = parsedResponse.connectionid
+				this.status(this.STATUS_OK, `Connection ID ${this.connectionId}`)
+
+				this.initalizeAllRoutes()
+				this.initVariables()
+				this.watchForNewEvents()
+			}
+		})
+	}
+
+	initalizeAllRoutes() {
+		for (let i = 1; i <= this.config.output_count; ++i) {
+			this.variables.push({
+				name: `destination_${i}`,
+				label: `Destination ${i} source`
+			})
+
+			this.refreshRoute(i)
+		}
+	}
+
+	refreshRoute(output) {
+		const connectionId = this.connectionId
+		const url = `http://${this.config.ip}/config?action=get&configid=0&paramid=eParamID_XPT_Destination${output}_Status`;
+
+		this.routeRefresh[output] = this.system.emit('rest_get', url, (err, response) => {
+			// Make sure we're consistent before updating anything, these should be aborted, but just in case not...
+			if (connectionId !== this.connectionId) return;
+
+			if (err !== null || response.response.statusCode !== 200) {
+				this.status(this.STATUS_WARNING, 'Error getting route status')
+			} else {
+				delete this.routeRefresh[output]
+				let parsedResponse = JSON.parse(response.data.toString());
+				this.setSrcToDest(output, parsedResponse.value)
+			}
+		})
 	}
 
 	// Return config fields for web config
 	config_fields() {
 		return [
 			{
-				type: 'text',
-				id: 'info',
-				width: 12,
-				label: 'Information',
-				value: 'Set the IP here of your Kumo router',
-			},
-			{
 				type: 'textinput',
 				id: 'ip',
 				label: 'IP Address',
+				tooltip: 'Set the IP here of your Kumo router',
 				regex: this.REGEX_IP,
 				width: 12,
 			},
+			{
+				type: 'textinput',
+				label: 'Input Count',
+				id: 'input_count',
+				default: 16,
+				tooltip: 'Number of inputs the router has.',
+				regex: this.REGEX_NUMBER
+			},
+			{
+				type: 'textinput',
+				label: 'Output Count',
+				id: 'output_count',
+				default: 4,
+				tooltip: 'Number of destinations the router has.',
+				regex: this.REGEX_NUMBER
+			}
 		]
 	}
 
 	// When module gets deleted
 	destroy() {
-		debug('destroy')
+		this.disconnect()
+		this.status(this.STATUS_UNKNOWN)
 	}
 
 	actions(system) {
@@ -104,27 +247,9 @@ class instance extends instance_skel {
 	}
 
 	initVariables() {
-		let variables = [{ name: 'destination', label: 'Selected Destination' },{ name: 'source', label: 'Selected Source' }]
-		this.setVariableDefinitions(variables)
+		this.setVariableDefinitions(this.variables)
 		this.setVariable('destination', 'Not yet selected')
 		this.setVariable('source', 'Not yet selected')
-	}
-
-	/**
-	 * Set available feedback choices
-	 */
-	init_feedbacks() {
-		const feedbacks = initFeedbacks.bind(this)()
-		this.setFeedbackDefinitions(feedbacks)
-	}
-
-	/**
-	 * Execute feedback
-	 * @param  {} feedback
-	 * @param  {} bank
-	 */
-	feedback(feedback, bank) {
-		return executeFeedback.bind(this)(feedback, bank)
 	}
 }
 exports = module.exports = instance
