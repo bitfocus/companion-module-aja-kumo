@@ -62,7 +62,6 @@ exports.initFeedbacks = function() {
 			}
 		],
 		callback: (feedback) => {
-			console.log(this.srcToDestMap)
 			return feedback.options.dest in this.srcToDestMap
 				&& this.srcToDestMap[feedback.options.dest] == feedback.options.src
 		}

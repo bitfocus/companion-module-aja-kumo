@@ -9,7 +9,7 @@ class instance extends instance_skel {
 	constructor(system, id, config) {
 		super(system, id, config)
 
-		// @todo this.defineConst('RECONNECT_TIME', 5);
+		this.defineConst('RECONNECT_TIME', 5); // Attempt a reconnect every 5 seconds
 
 		Object.assign(this, {
 			...actions,
@@ -38,7 +38,7 @@ class instance extends instance_skel {
 			}
 
 			if (err !== null || response.response.statusCode !== 200) {
-				this.disconnect()
+				this.disconnect(true)
 			} else {
 				let parsedResponse = JSON.parse(response.data.toString());
 				if (Array.isArray(parsedResponse)) {
@@ -57,9 +57,7 @@ class instance extends instance_skel {
 	}
 
 	updateConfig(config) {
-		if (this.connectionId !== null) {
-			this.disconnect()
-		}
+		this.disconnect()
 
 		this.config = config
 
@@ -75,6 +73,7 @@ class instance extends instance_skel {
 
 		this.selectedDestination = null
 		this.selectedSource = null
+		this.reconnectTimeout = null
 		this.routeRefresh = []
 		this.srcToDestMap = [];
 		this.variables = [
@@ -87,10 +86,20 @@ class instance extends instance_skel {
 		}
 	}
 
-	disconnect() {
+	disconnect(reconnect = false) {
+		this.status(this.STATUS_ERROR, 'Disconnected')
+
 		this.connectionId = null
 		if (this._connectionAttempt) {
 			this._connectionAttempt = null
+		}
+
+		if (this.reconnectTimeout) {
+			clearTimeout(this.reconnectTimeout)
+		}
+
+		if (reconnect) {
+			this.reconnectTimeout = setTimeout(this.connect.bind(this), this.RECONNECT_TIME * 1000)
 		}
 	}
 
@@ -114,8 +123,8 @@ class instance extends instance_skel {
 
 			this._connectionAttempt = null;
 			if (err !== null || response.response.statusCode !== 200) {
-				this.connectionId = null
 				this.status(this.STATUS_ERROR)
+				this.disconnect(true)
 			} else {
 				let parsedResponse = JSON.parse(response.data.toString());
 				this.connectionId = parsedResponse.connectionid
@@ -190,6 +199,7 @@ class instance extends instance_skel {
 	// When module gets deleted
 	destroy() {
 		this.disconnect()
+		this.status(this.STATUS_UNKNOWN)
 	}
 
 	actions(system) {
