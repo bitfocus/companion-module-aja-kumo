@@ -49,16 +49,18 @@ exports.initFeedbacks = function() {
 		},
 		options: [
 			{
-				type: 'number',
+				type: 'dropdown',
 				label: 'Destination',
 				id: 'dest',
-				default: 1
+				default: 1,
+				choices: this.getNameList()
 			},
 			{
-				type: 'number',
+				type: 'dropdown',
 				label: 'Source',
 				id: 'src',
-				default: 1
+				default: 1,
+				choices: this.getNameList('src')
 			}
 		],
 		callback: (feedback) => {

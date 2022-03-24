@@ -1,6 +1,7 @@
 const instance_skel = require('../../instance_skel')
 const actions = require('./actions')
 const feedbacks = require('./feedbacks')
+const upgrades = require('./upgrades')
 
 let debug
 let log
@@ -9,7 +10,9 @@ class instance extends instance_skel {
 	constructor(system, id, config) {
 		super(system, id, config)
 
-		this.defineConst('RECONNECT_TIME', 5); // Attempt a reconnect every 5 seconds
+		this.defineConst('RECONNECT_TIME', 5) // Attempt a reconnect every 5 seconds
+		this.defineConst('CONNWAIT', 10) // Time to wait between each status connection (if 64x64, there will be 64*3 + 64*2 http conns made on enable)
+		this.defineConst('SALVO_COUNT', 8) // Number of salvos; currently, every Kumo model has 8 salvos
 
 		Object.assign(this, {
 			...actions,
@@ -22,7 +25,8 @@ class instance extends instance_skel {
 			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
 				'active_destination': true,
 				'active_source': true,
-			})
+			}),
+			upgrades.addSrcDestCountConfig
 		]
 	}
 
@@ -40,7 +44,8 @@ class instance extends instance_skel {
 			if (err !== null || response.response.statusCode !== 200) {
 				this.disconnect(true)
 			} else {
-				let parsedResponse = JSON.parse(response.data.toString());
+				let parsedResponse = JSON.parse(response.data.toString())
+
 				if (Array.isArray(parsedResponse)) {
 					parsedResponse.forEach((x) => {
 						if(x.param_id) {
@@ -53,7 +58,7 @@ class instance extends instance_skel {
 				}
 				this.watchForNewEvents()
 			}
-		});
+		})
 	}
 
 	updateConfig(config) {
@@ -61,21 +66,24 @@ class instance extends instance_skel {
 
 		this.config = config
 
-		this.init();
+		this.init()
 	}
 
 	init() {
 		this.status(this.STATUS_UNKNOWN)
-		this.actions()
-		this.initFeedbacks()
+
+		this.names = {
+			dest_name: {},
+			src_name: {},
+			salvo: {},
+		}
 
 		this.connectionId = null
 
 		this.selectedDestination = null
 		this.selectedSource = null
 		this.reconnectTimeout = null
-		this.routeRefresh = []
-		this.srcToDestMap = [];
+		this.srcToDestMap = []
 		this.variables = [
 			{ name: 'destination', label: 'Currently selected destination' },
 			{ name: 'source', label: 'Currently selected source' }
@@ -84,6 +92,37 @@ class instance extends instance_skel {
 		if(this.config.ip) {
 			this.connect()
 		}
+	}
+
+	getNameList(type = 'dest') {
+		let list = []
+		let count = this.config[`${type}_count`]
+		let nameType = `${type}_name`
+
+		for (let i = 1; i <= count; ++i) {
+			let name
+			name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : i
+
+			list.push({
+				id: i,
+				label: name
+			})
+		}
+
+		return list
+	}
+
+	getSalvoList() {
+		let list = []
+
+		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
+			list.push({
+				id: i,
+				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : i
+			})
+		}
+
+		return list
 	}
 
 	disconnect(reconnect = false) {
@@ -106,64 +145,148 @@ class instance extends instance_skel {
 	setSrcToDest(dest, src) {
 		if (dest in this.srcToDestMap && this.srcToDestMap[dest] === src) return // #nothingchanged
 		this.srcToDestMap[dest] = src
-		this.setVariable(`destination_${dest}`, src)
+		this.setVariable(`dest_${dest}`, src)
 		this.checkFeedbacks('destination_match')
 	}
 
 	connect() {
-		this.status(this.STATUS_WARNING, 'Connecting...');
-		if (!this.config.input_count) this.config.input_count = 16
-		if (!this.config.output_count) this.config.output_count = 4
+		this.status(this.STATUS_WARNING, 'Connecting...')
 
 		let url = `http://${this.config.ip}/config?action=connect&configid=0`
 		this._connectionAttempt = this.system.emit('rest_get', url, (err, response) => {
 			if (this._connectionAttempt === null) {
-				return;
+				return
 			}
 
-			this._connectionAttempt = null;
+			this._connectionAttempt = null
 			if (err !== null || response.response.statusCode !== 200) {
 				this.status(this.STATUS_ERROR)
 				this.disconnect(true)
 			} else {
-				let parsedResponse = JSON.parse(response.data.toString());
+				let parsedResponse = JSON.parse(response.data.toString())
 				this.connectionId = parsedResponse.connectionid
-				this.status(this.STATUS_OK, `Connection ID ${this.connectionId}`)
+				this.status(this.STATUS_WARNING, 'Loading status...')
 
-				this.initalizeAllRoutes()
+				// It could several seconds to get the initial status due to the many status requests we must make
+				// So, we're going to get everything setup, then show the variables so the user doesn't have to wait
+				// And then the vars will be populated as they come in
+				let currentStatus = this.getCurrentStatus()
 				this.initVariables()
-				this.watchForNewEvents()
+
+				Promise.all(currentStatus)
+					.then(() => {
+						this.status(this.STATUS_OK, `Connection ID ${this.connectionId}`)
+
+						this.actions()
+						this.initFeedbacks()
+						this.watchForNewEvents()
+					}).catch(() => {
+						if (this.connectionId === parsedResponse.connectionid) {
+							// If connection is disabled before all promises, we don't want to try reconnecting
+							this.disconnect(true)
+						}
+					})
 			}
 		})
 	}
 
-	initalizeAllRoutes() {
-		for (let i = 1; i <= this.config.output_count; ++i) {
-			this.variables.push({
-				name: `destination_${i}`,
-				label: `Destination ${i} source`
-			})
+	createVariable(name, label) {
+		this.variables.push({
+			name: name,
+			label: label
+		})
+	}
 
-			this.refreshRoute(i)
+	getCurrentStatus() {
+		let statusPromises = []
+		let destsrc = ['dest', 'src']
+
+		destsrc.forEach(x => {
+			let title = x === 'dest' ? 'Destination' : 'Source'
+
+			for (let i = 1; i <= this.config[`${x}_count`]; ++i) {
+				if (x === 'dest') {
+					this.createVariable(`dest_${i}`, `Destination ${i} source`)
+					statusPromises.push(this.getParam('dest', { num: i }, statusPromises.length * this.CONNWAIT))
+				}
+
+				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
+				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
+				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
+			}
+		})
+
+		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
+			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+			statusPromises.push(this.getParam('salvo', { num: i }, statusPromises.length * this.CONNWAIT))
 		}
+
+		return statusPromises
 	}
 
-	refreshRoute(output) {
+	getParam(param, options, timewait) {
 		const connectionId = this.connectionId
-		const url = `http://${this.config.ip}/config?action=get&configid=0&paramid=eParamID_XPT_Destination${output}_Status`;
+		let url
 
-		this.routeRefresh[output] = this.system.emit('rest_get', url, (err, response) => {
-			// Make sure we're consistent before updating anything, these should be aborted, but just in case not...
-			if (connectionId !== this.connectionId) return;
+		if (param === 'dest') {
+			url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Status`)
+		} else if (param === 'dest_name') {
+			url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Line_${options.line}`)
+		} else if (param === 'src_name') {
+			url = this.buildParamIdUrl(`eParamID_XPT_Source${options.num}_Line_${options.line}`)
+		} else if (param === 'salvo') {
+			url = this.buildParamIdUrl(`eParamID_Salvo${options.num}`)
+		}
 
-			if (err !== null || response.response.statusCode !== 200) {
-				this.status(this.STATUS_WARNING, 'Error getting route status')
-			} else {
-				delete this.routeRefresh[output]
-				let parsedResponse = JSON.parse(response.data.toString());
-				this.setSrcToDest(output, parsedResponse.value)
-			}
+		return new Promise((resolve, reject) => {
+			setTimeout(() => {
+				if (connectionId !== this.connectionId) {
+					return reject('Connection aborted.')
+				}
+
+				this.system.emit('rest_get', url, (err, response) => {
+					// Make sure we're consistent before updating anything, these should be aborted, but could not be...
+					if (connectionId !== this.connectionId) return
+
+					if (err !== null || response.response.statusCode !== 200) {
+						reject()
+					} else {
+						let parsedResponse = JSON.parse(response.data.toString())
+
+						if (param === 'dest') {
+							this.setSrcToDest(options.num, parsedResponse.value)
+						} else if (param === 'dest_name' || param === 'src_name') {
+							this.setSrcDestName(param, options, parsedResponse.value)
+						} else if (param === 'salvo' && parsedResponse.value && parsedResponse.value.name) {
+							this.setSalvoName(options.num, parsedResponse.value.name)
+						}
+						resolve()
+					}
+				})
+			}, timewait)
 		})
+	}
+
+	setSalvoName(num, name) {
+		this.names['salvo'][num] = name
+		this.setVariable(`salvo_name_${num}`, name)
+	}
+
+	buildParamIdUrl(param) {
+		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
+	}
+
+	setSrcDestName(param, options, value) {
+		let line = parseInt(options.line) - 1
+
+		if (!(options.num in this.names[param])) {
+			this.names[param][options.num] = []
+		}
+
+		this.names[param][options.num][line] = value
+
+		this.setVariable(`${param}_${options.num}_line${options.line}`, value)
 	}
 
 	// Return config fields for web config
@@ -179,18 +302,18 @@ class instance extends instance_skel {
 			},
 			{
 				type: 'textinput',
-				label: 'Input Count',
-				id: 'input_count',
+				label: 'Source Count',
+				id: 'src_count',
 				default: 16,
-				tooltip: 'Number of inputs the router has.',
+				tooltip: 'Number of inputs/sources the router has.',
 				regex: this.REGEX_NUMBER
 			},
 			{
 				type: 'textinput',
-				label: 'Output Count',
-				id: 'output_count',
+				label: 'Destination Count',
+				id: 'dest_count',
 				default: 4,
-				tooltip: 'Number of destinations the router has.',
+				tooltip: 'Number of outputs/destinations the router has.',
 				regex: this.REGEX_NUMBER
 			}
 		]
