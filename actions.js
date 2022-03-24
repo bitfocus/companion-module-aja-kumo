@@ -50,11 +50,11 @@ exports.getActions = function () {
 		label: 'Send salvo command',
 		options: [
 			{
-				type: 'textinput',
+				type: 'dropdown',
 				label: 'salvo',
 				id: 'salvo',
 				default: '1',
-				regex: this.REGEX_NUMBER,
+				choices: this.getSalvoList()
 			},
 		],
 	}

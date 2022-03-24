@@ -11,6 +11,7 @@ class instance extends instance_skel {
 
 		this.defineConst('RECONNECT_TIME', 5) // Attempt a reconnect every 5 seconds
 		this.defineConst('CONNWAIT', 10) // Time to wait between each status connection (if 64x64, there will be 64*3 + 64*2 http conns made on enable)
+		this.defineConst('SALVO_COUNT', 8) // Number of salvos; currently, every Kumo model has 8 salvos
 
 		Object.assign(this, {
 			...actions,
@@ -67,14 +68,15 @@ class instance extends instance_skel {
 	}
 
 	init() {
-		if (!this.config.input_count) this.config.input_count = 16
-		if (!this.config.output_count) this.config.output_count = 4
+		if (!this.config.src_count) this.config.src_count = 16
+		if (!this.config.dest_count) this.config.dest_count = 4
 
 		this.status(this.STATUS_UNKNOWN)
 
 		this.names = {
 			dest_name: {},
-			src_name: {}
+			src_name: {},
+			salvo: {},
 		}
 
 		this.connectionId = null
@@ -95,7 +97,7 @@ class instance extends instance_skel {
 
 	getNameList(type = 'dest') {
 		let list = []
-		let count = type === 'dest' ? this.config.output_count : this.config.input_count
+		let count = this.config[`${type}_count`]
 		let nameType = `${type}_name`
 
 		for (let i = 1; i <= count; ++i) {
@@ -105,6 +107,19 @@ class instance extends instance_skel {
 			list.push({
 				id: i,
 				label: name
+			})
+		}
+
+		return list
+	}
+
+	getSalvoList() {
+		let list = []
+
+		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
+			list.push({
+				id: i,
+				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : i
 			})
 		}
 
@@ -185,26 +200,33 @@ class instance extends instance_skel {
 
 	getCurrentStatus() {
 		let statusPromises = []
-		for (let i = 1; i <= this.config.output_count; ++i) {
-			this.createVariable(`dest_${i}`, `Destination ${i} source`)
-			this.createVariable(`dest_name_${i}_line1`, `Destination ${i} name, line 1`)
-			this.createVariable(`dest_name_${i}_line2`, `Destination ${i} name, line 2`)
-			statusPromises.push(this.getSrcDestParam('dest', { num: i }, statusPromises.length * this.CONNWAIT))
-			statusPromises.push(this.getSrcDestParam('dest_name', { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
-			statusPromises.push(this.getSrcDestParam('dest_name', { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
-		}
+		let destsrc = ['dest', 'src']
 
-		for (let i = 1; i <= this.config.input_count; ++i) {
-			this.createVariable(`src_name_${i}_line1`, `Source ${i} name, line 1`)
-			this.createVariable(`src_name_${i}_line2`, `Source ${i} name, line 2`)
-			statusPromises.push(this.getSrcDestParam('src_name', { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
-			statusPromises.push(this.getSrcDestParam('src_name', { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
+		destsrc.forEach(x => {
+			let title = x === 'dest' ? 'Destination' : 'Source'
+
+			for (let i = 1; i <= this.config[`${x}_count`]; ++i) {
+				if (x === 'dest') {
+					this.createVariable(`dest_${i}`, `Destination ${i} source`)
+					statusPromises.push(this.getParam('dest', { num: i }, statusPromises.length * this.CONNWAIT))
+				}
+
+				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
+				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
+				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
+			}
+		})
+
+		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
+			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+			statusPromises.push(this.getParam('salvo', { num: i }, statusPromises.length * this.CONNWAIT))
 		}
 
 		return statusPromises
 	}
 
-	getSrcDestParam(param, options, timewait) {
+	getParam(param, options, timewait) {
 		const connectionId = this.connectionId
 		let url
 
@@ -214,6 +236,8 @@ class instance extends instance_skel {
 			url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Line_${options.line}`)
 		} else if (param === 'src_name') {
 			url = this.buildParamIdUrl(`eParamID_XPT_Source${options.num}_Line_${options.line}`)
+		} else if (param === 'salvo') {
+			url = this.buildParamIdUrl(`eParamID_Salvo${options.num}`)
 		}
 
 		return new Promise((resolve, reject) => {
@@ -233,15 +257,21 @@ class instance extends instance_skel {
 
 						if (param === 'dest') {
 							this.setSrcToDest(options.num, parsedResponse.value)
-						}
-						if (param === 'dest_name' || param === 'src_name') {
+						} else if (param === 'dest_name' || param === 'src_name') {
 							this.setSrcDestName(param, options, parsedResponse.value)
+						} else if (param === 'salvo' && parsedResponse.value && parsedResponse.value.name) {
+							this.setSalvoName(options.num, parsedResponse.value.name)
 						}
 						resolve()
 					}
 				})
 			}, timewait)
 		})
+	}
+
+	setSalvoName(num, name) {
+		this.names['salvo'][num] = name
+		this.setVariable(`salvo_name_${num}`, name)
 	}
 
 	buildParamIdUrl(param) {
@@ -273,16 +303,16 @@ class instance extends instance_skel {
 			},
 			{
 				type: 'textinput',
-				label: 'Input Count',
-				id: 'input_count',
+				label: 'Source Count',
+				id: 'src_count',
 				default: 16,
 				tooltip: 'Number of inputs/sources the router has.',
 				regex: this.REGEX_NUMBER
 			},
 			{
 				type: 'textinput',
-				label: 'Output Count',
-				id: 'output_count',
+				label: 'Destination Count',
+				id: 'dest_count',
 				default: 4,
 				tooltip: 'Number of outputs/destinations the router has.',
 				regex: this.REGEX_NUMBER
