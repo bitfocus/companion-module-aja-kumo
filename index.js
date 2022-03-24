@@ -1,6 +1,7 @@
 const instance_skel = require('../../instance_skel')
 const actions = require('./actions')
 const feedbacks = require('./feedbacks')
+const upgrades = require('./upgrades')
 
 let debug
 let log
@@ -24,7 +25,8 @@ class instance extends instance_skel {
 			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
 				'active_destination': true,
 				'active_source': true,
-			})
+			}),
+			upgrades.addSrcDestCountConfig
 		]
 	}
 
@@ -68,9 +70,6 @@ class instance extends instance_skel {
 	}
 
 	init() {
-		if (!this.config.src_count) this.config.src_count = 16
-		if (!this.config.dest_count) this.config.dest_count = 4
-
 		this.status(this.STATUS_UNKNOWN)
 
 		this.names = {
