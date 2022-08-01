@@ -89,6 +89,9 @@ class instance extends instance_skel {
 			{ name: 'source', label: 'Currently selected source' }
 		]
 
+		this.actions()
+		this.initFeedbacks()
+
 		if(this.config.ip) {
 			this.connect()
 		}
