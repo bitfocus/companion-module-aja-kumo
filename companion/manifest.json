@@ -1,0 +1,31 @@
+{
+	"id": "aja-kumo",
+	"name": "aja-kumo",
+	"shortname": "kumo",
+	"description": "aja-kumo",
+	"version": "2.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/bitfocus/companion-module-aja-kumo.git",
+	"bugs": "https://github.com/bitfocus/companion-module-aja-kumo/issues",
+	"maintainers": [
+		{
+			"name": "Jeffrey Davidsz",
+			"email": "jeffrey.davidsz@vicreo.eu"
+		}
+	],
+	"legacyIds": [],
+	"runtime": {
+		"type": "node14",
+		"api": "socket.io",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../index.js"
+	},
+	"manufacturer": "AJA",
+	"products": [
+		"Kumo"
+	],
+	"keywords": [
+		"Protocol",
+		"Matrix"
+	]
+}

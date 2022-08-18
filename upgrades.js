@@ -1,11 +1,19 @@
-module.exports = {
+import { CreateConvertToBooleanFeedbackUpgradeScript } from '@companion-module/base'
+
+export default [
+    CreateConvertToBooleanFeedbackUpgradeScript({
+        active_destination: true,
+        active_source: true,
+    }),
+
     // We need to try to find the max number of src/dest this kumo model supports
-    addSrcDestCountConfig(context, config, actions, feedbacks) {
+    function(context, props) {
         // The minimum kumo has these specs; anything over 16 src is a x:x (ie, 32x32)
         let max_src = 16
         let max_dest = 4
+        const config = props.config
 
-        actions.forEach(x => {
+        props.actions.forEach(x => {
             if (x.options && 'source' in x.options) {
                 if (max_src < parseInt(x.options.source)) max_src = parseInt(x.options.source)
             }
@@ -29,6 +37,10 @@ module.exports = {
         config.src_count = String(max_src)
         config.dest_count = String(max_dest)
 
-        return true;
+        return {
+            updatedConfig: config,
+            updatedActions: [],
+            updatedFeedbacks: [],
+        }
     }
-}
+]
