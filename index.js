@@ -1,6 +1,6 @@
 import got from 'got';
 
-import { InstanceBase, Regex, combineRgb, CreateConvertToBooleanFeedbackUpgradeScript, runEntrypoint } from '@companion-module/base'
+import { InstanceBase, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
 
 class AjaKumoInstance extends InstanceBase {
