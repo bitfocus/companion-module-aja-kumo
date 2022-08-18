@@ -28,7 +28,6 @@ class AjaKumoInstance extends InstanceBase {
 			this.watchForNewEvents()
 		})
 		.catch(e => {
-			console.log(e)
 			this.disconnect(true)
 		})
 	}
