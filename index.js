@@ -33,11 +33,15 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	async configUpdated(config) {
+		if(this.config.ip === config.ip &&
+			this.config.src_count === config.src_count &&
+			this.config.dest_count === config.dest_count) return // Nothing updated
+
 		this.disconnect()
 
 		this.config = config
 
-		this.connect()
+		await this.connect()
 	}
 
 	async init(config) {
@@ -56,7 +60,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.actions()
 		this.initFeedbacks()
 
-		this.connect()
+		await this.connect()
 	}
 
 	getNameList(type = 'dest') {
@@ -155,7 +159,7 @@ class AjaKumoInstance extends InstanceBase {
 		let currentStatus = this.getCurrentStatus()
 		this.initVariables()
 
-		Promise.all(currentStatus)
+		return Promise.all(currentStatus)
 			.then(() => {
 				this.updateStatus('ok')
 				this.log('info', `Connected to device, connection ID ${this.connectionId}`)
