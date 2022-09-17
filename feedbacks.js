@@ -10,10 +10,11 @@ exports.initFeedbacks = function() {
 			bgcolor: this.rgb(255, 0, 0)
 		},
 		options: [{
-			type: 'number',
+			type: 'dropdown',
 			label: 'Destination number',
 			id: 'destination',
-			default: 1
+			default: 1,
+            choices: this.getNameList()
 		}],
 		callback: (feedback) => {
 			return this.selectedDestination == feedback.options.destination
@@ -29,13 +30,35 @@ exports.initFeedbacks = function() {
 			bgcolor: this.rgb(255, 0, 0)
 		},
 		options: [{
-			type: 'number',
+			type: 'dropdown',
 			label: 'Source number',
 			id: 'source',
-			default: 1
+			default: 1,
+            choices: this.getNameList('src')
 		}],
 		callback: (feedback) => {
 			return this.selectedSource == feedback.options.source
+		}
+	}
+
+	feedbacks.source_match = {
+		type: 'boolean',
+		label: 'Source matches the destination',
+		description: 'When this source (specified) is routed to the destination selected in Companion',
+		style: {
+			color: this.rgb(255, 255, 255),
+			bgcolor: this.rgb(255, 0, 0)
+		},
+		options: [{
+			type: 'dropdown',
+			label: 'Source number',
+			id: 'source',
+			default: 1,
+            choices: this.getNameList('src')
+		}],
+		callback: (feedback) => {
+			return this.selectedDestination in this.srcToDestMap
+				&& feedback.options.source == this.srcToDestMap[this.selectedDestination];
 		}
 	}
 

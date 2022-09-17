@@ -6,14 +6,14 @@ exports.getActions = function () {
 		options: [
 			{
 				type: 'dropdown',
-				label: 'output',
+				label: 'Destination',
 				id: 'destination',
 				default: '1',
 				choices: this.getNameList()
 			},
 			{
 				type: 'dropdown',
-				label: 'source',
+				label: 'Source',
 				id: 'source',
 				default: '1',
 				choices: this.getNameList('src')
@@ -24,12 +24,11 @@ exports.getActions = function () {
 		label: 'Select destination',
 		options: [
 			{
-				type: 'number',
-				label: 'destination number',
+				type: 'dropdown',
+				label: 'Destination number',
 				id: 'destination',
-				min: 1,
-				max: 64,
-				default: 1
+				default: 1,
+				choices: this.getNameList()
 			}
 		]
 	}
@@ -37,12 +36,11 @@ exports.getActions = function () {
 		label: 'Send source to previous selected destination',
 		options: [
 			{
-				type: 'number',
-				label: 'source number',
+				type: 'dropdown',
+				label: 'Source number',
 				id: 'source',
-				min: 1,
-				max: 64,
-				default: 1
+				default: 1,
+				choices: this.getNameList('src')
 			}
 		]
 	}
@@ -51,10 +49,29 @@ exports.getActions = function () {
 		options: [
 			{
 				type: 'dropdown',
-				label: 'salvo',
+				label: 'Salvo',
 				id: 'salvo',
 				default: '1',
 				choices: this.getSalvoList()
+			},
+		],
+	}
+	actions['swap_sources'] = {
+		label: 'Swap the sources of two specified destinations',
+		options: [
+			{
+				type: 'dropdown',
+				label: 'Destination A',
+				id: 'dest_A',
+				default: '1',
+				choices: this.getNameList(),
+			},
+			{
+				type: 'dropdown',
+				label: 'Destination B',
+				id: 'dest_B',
+				default: '2',
+				choices: this.getNameList(),
 			},
 		],
 	}

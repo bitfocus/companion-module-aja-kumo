@@ -150,6 +150,7 @@ class instance extends instance_skel {
 		this.srcToDestMap[dest] = src
 		this.setVariable(`dest_${dest}`, src)
 		this.checkFeedbacks('destination_match')
+		this.checkFeedbacks('source_match')
 	}
 
 	connect() {
@@ -277,7 +278,10 @@ class instance extends instance_skel {
 	}
 
 	buildParamIdUrl(param) {
-		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
+		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`;
+	}
+	buildParamIdUrlSet(param, value=false) {
+		return `http://${this.config.ip}/config?action=set&configid=0&paramid=${param}` + ( ( value ) ? `&value=${value}` : '' );
 	}
 
 	setSrcDestName(param, options, value) {
@@ -334,7 +338,7 @@ class instance extends instance_skel {
 
 	action(action) {
 		let id = action.action
-		let cmd
+		let cmds = []
 
 		switch (id) {
 			case 'destination':
@@ -346,30 +350,67 @@ class instance extends instance_skel {
 				this.selectedSource = action.options.source
 				this.setVariable('source', action.options.source)
 				this.getVariable('destination', destination => {
-					if(destination) {
-						cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${destination}_Status&value=${action.options.source}`
+					if (destination) {
+						// Add an API call, to be sent afterwards
+						cmds.push(
+							this.buildParamIdUrlSet(
+								`eParamID_XPT_Destination${destination}_Status`,
+								action.options.source
+							)
+						);
 					}
 				})
 				break
 
 			case 'route':
-				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_XPT_Destination${action.options.destination}_Status&value=${action.options.source}`
+				cmds.push(
+					this.buildParamIdUrlSet(
+						`eParamID_XPT_Destination${action.options.destination}_Status`,
+						action.options.source
+					)
+				);
 				break
 
-			case 'salvo':
-				cmd = `http://${this.config.ip}/config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=${action.options.salvo}`
+            case 'salvo':
+            	cmds.push(
+					this.buildParamIdUrlSet(
+						'eParamID_TakeSalvo',
+						action.options.salvo
+					)
+				);
+				break
+
+			case 'swap_sources':
+				let source_of_dest_A = this.srcToDestMap[action.options.dest_A];
+				let source_of_dest_B = this.srcToDestMap[action.options.dest_B];
+				cmds.push(
+					this.buildParamIdUrlSet(
+						`eParamID_XPT_Destination${action.options.dest_A}_Status`,
+						source_of_dest_B
+					)
+				);
+				cmds.push(
+					this.buildParamIdUrlSet(
+						`eParamID_XPT_Destination${action.options.dest_B}_Status`,
+						source_of_dest_A
+					)
+				);
 				break
 		}
-		this.checkFeedbacks('active_destination')
+        this.checkFeedbacks('active_destination')
 		this.checkFeedbacks('active_source')
-		this.system.emit('rest_get', cmd, (err, result) => {
-			if (err !== null) {
-				this.log('error', 'HTTP GET Request failed (' + result.error.code + ')')
-				this.status(this.STATUS_ERROR, result.error.code)
-			} else {
-				this.status(this.STATUS_OK)
-			}
-		})
+		// Send all the gathered API requests in `cmds` above
+		for ( var i = 0; i < cmds.length; i++ ) {
+			this.system.emit('rest_get', cmds[i], (err, result) => {
+				if (err !== null) {
+					this.log('error', 'HTTP GET Request failed (' + result.error.code + ')')
+					this.status(this.STATUS_ERROR, result.error.code)
+				} else {
+					this.status(this.STATUS_OK)
+				}
+			})
+		}
+		this.checkFeedbacks('source_match')
 	}
 
 	initVariables() {
