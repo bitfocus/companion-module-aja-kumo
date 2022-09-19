@@ -336,7 +336,7 @@ class AjaKumoInstance extends InstanceBase {
 					const dest = await this.parseVariablesInString(event.options.destination);
 					const src = await this.parseVariablesInString(event.options.source);
 
-					this.actionCall(`config?action=set&configid=0&paramid=eParamID_XPT_Destination${dest}_Status&value=${src}`)
+					this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
 				}
 			},
 			destination: {
@@ -376,7 +376,7 @@ class AjaKumoInstance extends InstanceBase {
 					this.selectedSource = event.options.source
 					this.setVariableValues({ source: event.options.source })
 					if(destination) {
-						this.actionCall(`config?action=set&configid=0&paramid=eParamID_XPT_Destination${destination}_Status&value=${event.options.source}`)
+						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
 					this.checkFeedbacks('active_source')
 				}
@@ -393,7 +393,7 @@ class AjaKumoInstance extends InstanceBase {
 					},
 				],
 				callback: (event) => {
-					this.actionCall(`config?action=set&configid=0&paramid=eParamID_TakeSalvo&value=${event.options.salvo}`)
+					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
 				}
 			},
 		}
@@ -401,10 +401,15 @@ class AjaKumoInstance extends InstanceBase {
 		this.setActionDefinitions(actions)
 	}
 
-	actionCall(action) {
-		// @todo fix this
-		`http://${this.config.ip}/${action}`
-		// error status if failed
+	actionCall(id, val, action = 'set') {
+		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
+		
+		got.get(url).then(response => {
+			if (this.connectionId === null) reject()
+		})
+		.catch(e => {
+			this.log('error', `Failed to send command to device: ${e}`)
+		})
 	}
 
 	initVariables() {
