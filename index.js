@@ -311,13 +311,15 @@ class AjaKumoInstance extends InstanceBase {
 	actions(system) {
 		const actions = {
 			route: {
-				name: 'Route input to output',
+				name: 'Route source to destination',
 				options: [
 					{
 						type: 'dropdown',
 						label: 'output',
 						id: 'destination',
 						default: '1',
+						useVariables: true,
+						allowCustom: true,
 						choices: this.getNameList()
 					},
 					{
@@ -325,11 +327,16 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'source',
 						id: 'source',
 						default: '1',
+						useVariables: true,
+						allowCustom: true,
 						choices: this.getNameList('src')
 					},
 				],
-				callback: (event) => {
-					this.actionCall(`config?action=set&configid=0&paramid=eParamID_XPT_Destination${event.options.destination}_Status&value=${event.options.source}`)
+				callback: async (event) => {
+					const dest = await this.parseVariablesInString(event.options.destination);
+					const src = await this.parseVariablesInString(event.options.source);
+
+					this.actionCall(`config?action=set&configid=0&paramid=eParamID_XPT_Destination${dest}_Status&value=${src}`)
 				}
 			},
 			destination: {
