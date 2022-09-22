@@ -371,8 +371,8 @@ class instance extends instance_skel {
 				);
 				break
 
-            case 'salvo':
-            	cmds.push(
+			case 'salvo':
+				cmds.push(
 					this.buildParamIdUrlSet(
 						'eParamID_TakeSalvo',
 						action.options.salvo
@@ -397,11 +397,11 @@ class instance extends instance_skel {
 				);
 				break
 		}
-        this.checkFeedbacks('active_destination')
+		this.checkFeedbacks('active_destination')
 		this.checkFeedbacks('active_source')
 		// Send all the gathered API requests in `cmds` above
-		for ( var i = 0; i < cmds.length; i++ ) {
-			this.system.emit('rest_get', cmds[i], (err, result) => {
+		cmds.forEach( (cmd) => {
+			this.system.emit('rest_get', cmd, (err, result) => {
 				if (err !== null) {
 					this.log('error', 'HTTP GET Request failed (' + result.error.code + ')')
 					this.status(this.STATUS_ERROR, result.error.code)
@@ -409,7 +409,7 @@ class instance extends instance_skel {
 					this.status(this.STATUS_OK)
 				}
 			})
-		}
+		});
 		this.checkFeedbacks('source_match')
 	}
 
