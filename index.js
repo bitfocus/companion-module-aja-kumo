@@ -482,7 +482,7 @@ class AjaKumoInstance extends InstanceBase {
 					default: 1
 				}],
 				callback: (feedback) => {
-					return this.selectedDestination in this.srcToDestMap && feedback.options.source == this.srcToDestMap[this.selectedDestination]
+					return this.selectedSource == feedback.options.source
 				}
 			},
 			source_match: {
@@ -503,7 +503,7 @@ class AjaKumoInstance extends InstanceBase {
 					},
 				],
 				callback: (feedback) => {
-					return 
+					return this.selectedDestination in this.srcToDestMap && feedback.options.source == this.srcToDestMap[this.selectedDestination]
 				}
 			},
 			destination_match: {
