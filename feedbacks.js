@@ -14,13 +14,13 @@ exports.initFeedbacks = function() {
 			label: 'Destination number',
 			id: 'destination',
 			default: 1,
-            choices: this.getNameList()
+			choices: this.getNameList()
 		}],
 		callback: (feedback) => {
 			return this.selectedDestination == feedback.options.destination
 		}
 	}
-	
+
 	feedbacks.active_source = {
 		type: 'boolean',
 		label: 'Source change',
@@ -34,7 +34,7 @@ exports.initFeedbacks = function() {
 			label: 'Source number',
 			id: 'source',
 			default: 1,
-            choices: this.getNameList('src')
+			choices: this.getNameList('src')
 		}],
 		callback: (feedback) => {
 			return this.selectedSource == feedback.options.source
@@ -54,7 +54,7 @@ exports.initFeedbacks = function() {
 			label: 'Source number',
 			id: 'source',
 			default: 1,
-            choices: this.getNameList('src')
+			choices: this.getNameList('src')
 		}],
 		callback: (feedback) => {
 			return this.selectedDestination in this.srcToDestMap
