@@ -2,7 +2,7 @@ exports.getActions = function () {
 	let actions = {}
 
 	actions['route'] = {
-		label: 'Route input to output',
+		label: 'Route a source (input) to a destination (output)',
 		options: [
 			{
 				type: 'dropdown',
@@ -21,7 +21,7 @@ exports.getActions = function () {
 		],
 	}
 	actions['destination'] = {
-		label: 'Select destination',
+		label: 'Select a destination in Companion',
 		options: [
 			{
 				type: 'dropdown',
@@ -33,7 +33,7 @@ exports.getActions = function () {
 		]
 	}
 	actions['source'] = {
-		label: 'Send source to previous selected destination',
+		label: 'Route this source to previously selected destination',
 		options: [
 			{
 				type: 'dropdown',
@@ -45,7 +45,7 @@ exports.getActions = function () {
 		]
 	}
 	actions['salvo'] = {
-		label: 'Send salvo command',
+		label: 'Take (apply) a salvo',
 		options: [
 			{
 				type: 'dropdown',
