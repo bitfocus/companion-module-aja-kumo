@@ -396,6 +396,33 @@ class AjaKumoInstance extends InstanceBase {
 					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
 				}
 			},
+			swap_sources: {
+				name: 'Swap sources',
+				description: 'Swap the sources of two specified destinations',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Destination A',
+						id: 'dest_A',
+						default: '1',
+						choices: this.getNameList()
+					},
+					{
+						type: 'dropdown',
+						label: 'Destination B',
+						id: 'dest_B',
+						default: '2',
+						choices: this.getNameList()
+					},
+				],
+				callback: (event) => {
+					let source_of_dest_A = this.srcToDestMap[event.options.dest_A]
+					let source_of_dest_B = this.srcToDestMap[event.options.dest_B]
+					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
+					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
+					this.checkFeedbacks('source_match')
+				}
+			},
 		}
 
 		this.setActionDefinitions(actions)
@@ -456,6 +483,27 @@ class AjaKumoInstance extends InstanceBase {
 				}],
 				callback: (feedback) => {
 					return this.selectedSource == feedback.options.source
+				}
+			},
+			source_match: {
+				type: 'boolean',
+				label: 'Source matches the destination',
+				description: 'When this source (specified) is routed to the destination selected in Companion',
+				defaultStyle: {
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(255, 0, 0)
+				},
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Source',
+						id: 'src',
+						default: 1,
+						choices: this.getNameList('src')
+					},
+				],
+				callback: (feedback) => {
+					return this.selectedDestination in this.srcToDestMap && feedback.options.source == this.srcToDestMap[this.selectedDestination]
 				}
 			},
 			destination_match: {
