@@ -12,10 +12,10 @@
 	},
 	"license": "MIT",
 	"dependencies": {
-		"@companion-module/base": "~0.1.2",
+		"@companion-module/base": "~0.4.6",
 		"got": "^12.3.1"
 	},
 	"devDependencies": {
-		"@companion-module/tools": "^0.1.1"
+		"@companion-module/tools": "^0.3.1"
 	}
 }
