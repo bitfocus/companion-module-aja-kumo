@@ -323,7 +323,7 @@ class AjaKumoInstance extends InstanceBase {
 		const actions = {
 			route: {
 				name: 'Route a source (input) to a destination (output)',
-                description: 'The primary command for routing. Use to set the Source and the Destination in a single button press.',
+				description: 'The primary command for routing. Use to set the Source and the Destination in a single button press.',
 				options: [
 					{
 						type: 'dropdown',
@@ -349,7 +349,7 @@ class AjaKumoInstance extends InstanceBase {
 					const src = await this.parseVariablesInString(event.options.source);
 
 					this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
-                    this.checkFeedbacks('source_match')
+					this.checkFeedbacks('source_match')
 				}
 			},
 			destination: {
@@ -368,8 +368,7 @@ class AjaKumoInstance extends InstanceBase {
 				callback: (event) => {
 					this.selectedDestination = event.options.destination
 					this.setVariableValues({ destination: event.options.destination })
-					this.checkFeedbacks('active_destination')
-					this.checkFeedbacks('source_match')
+					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
 			source: {
@@ -392,8 +391,7 @@ class AjaKumoInstance extends InstanceBase {
 					if(destination) {
 						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
-					this.checkFeedbacks('active_source')
-					this.checkFeedbacks('source_match')
+					this.checkFeedbacks('active_source', 'source_match')
 				}
 			},
 			salvo: {
@@ -524,7 +522,7 @@ class AjaKumoInstance extends InstanceBase {
 			destination_match: {
 				type: 'boolean',
 				name: 'Specific source is routed to a specific destination',
-				description: 'Upon a specific routing combination of source and destination.',
+				description: 'When routing on this device changes to a specific source and destination.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(255, 0, 0)
