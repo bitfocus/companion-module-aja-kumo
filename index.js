@@ -8,10 +8,12 @@ class AjaKumoInstance extends InstanceBase {
 		if (this.connectionId === null) {
 			return // Do not attempt to connect to a disabled connection
 		}
+		const request_con_id = this.connectionId
 		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
-		
+
 		got.get(url).then(response => {
-			if (this.connectionId === null) reject()
+			if (this.connectionId === null) return // do not return an error here, since the kumo keeps old connections open for a second
+			else if (request_con_id !== this.connectionId) return // this request came from an old connection
 
 			let parsedResponse = JSON.parse(response.body.toString())
 
@@ -28,7 +30,7 @@ class AjaKumoInstance extends InstanceBase {
 			this.watchForNewEvents()
 		})
 		.catch(e => {
-			this.disconnect(true)
+			this.log('error', `Error with new event ${e.message}`)
 		})
 	}
 
@@ -41,7 +43,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.config = config
 
-		await this.connect()
+		this.connect()
 	}
 
 	async init(config) {
@@ -60,7 +62,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.actions()
 		this.initFeedbacks()
 
-		await this.connect()
+		this.connect()
 	}
 
 	getNameList(type = 'dest') {
@@ -143,18 +145,21 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.updateStatus('connecting')
 
-		let url = `http://${this.config.ip}/config?action=connect&configid=0`
-		const parsedResponse = await got.get(url)
-		.json()
-		.catch(e => {
-			this.updateStatus('connection_failure')
-			this.disconnect(true)
+		const url = `http://${this.config.ip}/config?action=connect&configid=0`
+		const ip = this.config.ip
+
+		const parsedResponse = await got.get(url, {
+			timeout: {
+				request: 3000
+			}
 		})
-		if ( !parsedResponse ) {
-			this.updateStatus('connection_failure')
-			this.disconnect(true)
-			return
-		}
+			.json()
+			.catch(e => {
+				if(ip !== this.config.ip) return
+				this.disconnect(true)
+				this.updateStatus('connection_failure')
+			})
+		if(!parsedResponse || ip !== this.config.ip) return
 
 		this.connectionId = parsedResponse.connectionid
 		this.updateStatus('ok', 'Loading status...')
@@ -440,7 +445,7 @@ class AjaKumoInstance extends InstanceBase {
 
 	actionCall(id, val, action = 'set') {
 		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
-		
+
 		got.get(url).then(response => {
 			if (this.connectionId === null) reject()
 		})
@@ -546,9 +551,9 @@ class AjaKumoInstance extends InstanceBase {
 				}
 			},
 		}
-	
+
 		this.setFeedbackDefinitions(feedbacks)
-	}	
+	}
 }
 
 runEntrypoint(AjaKumoInstance, UpgradeScripts)
