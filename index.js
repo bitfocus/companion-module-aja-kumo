@@ -114,6 +114,7 @@ class AjaKumoInstance extends InstanceBase {
 		if (dest in this.srcToDestMap && this.srcToDestMap[dest] === src) return // #nothingchanged
 		this.srcToDestMap[dest] = src
 		this.setDynamicVariable(`dest_${dest}`, src)
+		this.checkFeedbacks('source_match')
 		this.checkFeedbacks('destination_match')
 	}
 
@@ -132,8 +133,8 @@ class AjaKumoInstance extends InstanceBase {
 		this.reconnectTimeout = null
 		this.srcToDestMap = []
 		this.variables = [
-			{ variableId: 'destination', name: 'Currently selected destination' },
-			{ variableId: 'source', name: 'Currently selected source' }
+			{ variableId: 'destination', name: 'Current pre-selected destination' },
+			{ variableId: 'source', name: 'Currently pre-selected source' }
 		]
 	}
 
@@ -321,11 +322,12 @@ class AjaKumoInstance extends InstanceBase {
 	actions(system) {
 		const actions = {
 			route: {
-				name: 'Route source to destination',
+				name: 'Route a source (input) to a destination (output)',
+				description: 'The primary command for routing. Use to set the Source and the Destination in a single button press.',
 				options: [
 					{
 						type: 'dropdown',
-						label: 'output',
+						label: 'destination',
 						id: 'destination',
 						default: '1',
 						useVariables: true,
@@ -347,11 +349,12 @@ class AjaKumoInstance extends InstanceBase {
 					const src = await this.parseVariablesInString(event.options.source);
 
 					this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
+					this.checkFeedbacks('source_match')
 				}
 			},
 			destination: {
-				name: 'Select destination (legacy)',
-				description: 'This does not interact with the device and is used internally with the "source" command. It is recommended to use route instead.',
+				name: 'Pre-select a destination',
+				description: 'Sets a draft destination and Companion remembers it. Then next, use "Send source" action and this destination will be used.',
 				options: [
 					{
 						type: 'number',
@@ -365,12 +368,12 @@ class AjaKumoInstance extends InstanceBase {
 				callback: (event) => {
 					this.selectedDestination = event.options.destination
 					this.setVariableValues({ destination: event.options.destination })
-					this.checkFeedbacks('active_destination')
+					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
 			source: {
-				name: 'Send source to previous selected destination (legacy)',
-				description: 'This uses the previously selected destination action. It is recommended to use route instead.',
+				name: 'Send source to the pre-selected destination',
+				description: 'Sends a route command with the Source being the one chosen here, and the Destination being the one pre-selected with the action "Pre-select".',
 				options: [
 					{
 						type: 'number',
@@ -388,11 +391,11 @@ class AjaKumoInstance extends InstanceBase {
 					if(destination) {
 						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
-					this.checkFeedbacks('active_source')
+					this.checkFeedbacks('active_source', 'source_match')
 				}
 			},
 			salvo: {
-				name: 'Select salvo',
+				name: 'Take (apply) a salvo',
 				options: [
 					{
 						type: 'dropdown',
@@ -412,14 +415,14 @@ class AjaKumoInstance extends InstanceBase {
 				options: [
 					{
 						type: 'dropdown',
-						label: 'Destination A',
+						label: 'destination A',
 						id: 'dest_A',
 						default: '1',
 						choices: this.getNameList()
 					},
 					{
 						type: 'dropdown',
-						label: 'Destination B',
+						label: 'destination B',
 						id: 'dest_B',
 						default: '2',
 						choices: this.getNameList()
@@ -461,15 +464,15 @@ class AjaKumoInstance extends InstanceBase {
 		const feedbacks = {
 			active_destination: {
 				type: 'boolean',
-				name: 'Destination change (legacy)',
-				description: 'When a different destination button is selected in Companion. Recommended to use "Source routes to destination".',
+				name: 'Selection of a destination button',
+				description: 'When a destination button is selected in Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(255, 0, 0)
 				},
 				options: [{
 					type: 'number',
-					label: 'Destination number',
+					label: 'Destination',
 					id: 'destination',
 					default: 1
 				}],
@@ -479,8 +482,8 @@ class AjaKumoInstance extends InstanceBase {
 			},
 			active_source: {
 				type: 'boolean',
-				name: 'Source change (legacy)',
-				description: 'When a different source button is selected in Companion. Recommended to use "Source routes to destination".',
+				name: 'Selection of a source button',
+				description: 'When a source button is selected in Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(255, 0, 0)
@@ -497,8 +500,8 @@ class AjaKumoInstance extends InstanceBase {
 			},
 			source_match: {
 				type: 'boolean',
-				label: 'Source matches the destination',
-				description: 'When this source (specified) is routed to the destination selected in Companion',
+				name: 'Source matches the pre-selected destination',
+				description: 'When this source is routed to the pre-selected destination remembered by Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(255, 0, 0)
@@ -518,8 +521,8 @@ class AjaKumoInstance extends InstanceBase {
 			},
 			destination_match: {
 				type: 'boolean',
-				name: 'Source routes to destination',
-				description: 'When the source routes to the destination',
+				name: 'Specific source is routed to a specific destination',
+				description: 'When routing on this device changes to a specific source and destination.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(255, 0, 0)
