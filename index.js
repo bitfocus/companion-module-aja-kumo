@@ -131,8 +131,8 @@ class AjaKumoInstance extends InstanceBase {
 		this.reconnectTimeout = null
 		this.srcToDestMap = []
 		this.variables = [
-			{ variableId: 'destination', name: 'Currently selected destination (legacy)' },
-			{ variableId: 'source', name: 'Currently selected source (legacy)' }
+			{ variableId: 'destination', name: 'Current pre-selected destination' },
+			{ variableId: 'source', name: 'Currently pre-selected source' }
 		]
 	}
 
@@ -150,6 +150,11 @@ class AjaKumoInstance extends InstanceBase {
 			this.updateStatus('connection_failure')
 			this.disconnect(true)
 		})
+		if ( !parsedResponse ) {
+			this.updateStatus('connection_failure')
+			this.disconnect(true)
+			return
+		}
 
 		this.connectionId = parsedResponse.connectionid
 		this.updateStatus('ok', 'Loading status...')
@@ -490,25 +495,9 @@ class AjaKumoInstance extends InstanceBase {
 					return this.selectedSource == feedback.options.source
 				}
 			},
-            test_feedback_new: {
-                type: 'boolean',
-                label: 'Test feedback',
-                options: [
-					{
-						type: 'dropdown',
-						label: 'Test option',
-						id: 'test_option',
-						default: 1,
-						choices: this.getNameList('src')
-					},
-				],
-                callback: (feedback) => {
-                    return false
-                }
-            },
 			source_match: {
 				type: 'boolean',
-				label: 'Source matches the pre-selected destination',
+				name: 'Source matches the pre-selected destination',
 				description: 'When this source is routed to the pre-selected destination remembered by Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
