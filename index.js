@@ -178,6 +178,8 @@ class AjaKumoInstance extends InstanceBase {
 				this.actions()
 				this.initFeedbacks()
 				this.watchForNewEvents()
+				this.setLabelComboVariables('dest')
+				this.setLabelComboVariables('src')
 			}).catch(x => {
 				if (this.connectionId === parsedResponse.connectionid) {
 					// If connection is disabled before all promises, we don't want to try reconnecting
@@ -272,15 +274,18 @@ class AjaKumoInstance extends InstanceBase {
 		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
 	}
 
-	setLabelComboVariable(param, num) {
-		console.log('setLabelComboVariable called', param, num)
-		var line1 = this.getVariableValue(`${param}_${num}_line1`)
-		var line2 = this.getVariableValue(`${param}_${num}_line2`)
-		var p = ( param == 'dest_name' ) ? 'dest' : 'src' // Trim off '_name'
-		this.setDynamicVariable(
-			`${p}_${num}_label_combo`,
-			`${num}\n${line1}\n${line2}`
-		)
+	// Create a combination string containing number and name lines, separated by newlines
+	setLabelComboVariables(type) {
+		for (var i = 1; i <= this.config[`${type}_count`]; i++) {
+			if ( i in this.names[`${type}_name`] ) {
+				var label_text
+				label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
+				this.setDynamicVariable(
+					`${type}_${i}_label_combo`,
+					label_text
+				)
+			}
+		}
 	}
 
 	setSrcDestName(param, options, value) {
@@ -294,7 +299,6 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
 
-		this.setLabelComboVariable(param, options.num)
 	}
 
 	// Return config fields for web config
