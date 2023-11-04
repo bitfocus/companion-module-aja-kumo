@@ -208,6 +208,7 @@ class AjaKumoInstance extends InstanceBase {
 
 				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
 				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} label with number, line 1 and 2`)
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
 			}
@@ -271,6 +272,17 @@ class AjaKumoInstance extends InstanceBase {
 		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
 	}
 
+	setLabelComboVariable(param, num) {
+		console.log('setLabelComboVariable called', param, num)
+		var line1 = this.getVariableValue(`${param}_${num}_line1`)
+		var line2 = this.getVariableValue(`${param}_${num}_line2`)
+		var p = ( param == 'dest_name' ) ? 'dest' : 'src' // Trim off '_name'
+		this.setDynamicVariable(
+			`${p}_${num}_label_combo`,
+			`${num}\n${line1}\n${line2}`
+		)
+	}
+
 	setSrcDestName(param, options, value) {
 		let line = parseInt(options.line) - 1
 
@@ -281,6 +293,8 @@ class AjaKumoInstance extends InstanceBase {
 		this.names[param][options.num][line] = value
 
 		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
+
+		this.setLabelComboVariable(param, options.num)
 	}
 
 	// Return config fields for web config
