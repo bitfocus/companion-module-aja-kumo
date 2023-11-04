@@ -127,14 +127,14 @@ class AjaKumoInstance extends InstanceBase {
 
 	device_reset() {
 		this.connectionId = null
+		this.reconnectTimeout = null
+		this.srcToDestMap = {}
 
 		this.selectedDestination = null
 		this.selectedSource = null
-		this.reconnectTimeout = null
-		this.srcToDestMap = []
 		this.variables = [
 			{ variableId: 'destination', name: 'Current pre-selected destination' },
-			{ variableId: 'source', name: 'Currently pre-selected source' }
+			{ variableId: 'source', name: 'Current pre-selected source' }
 		]
 	}
 
@@ -290,7 +290,7 @@ class AjaKumoInstance extends InstanceBase {
 				type: 'textinput',
 				id: 'ip',
 				label: 'IP Address',
-				tooltip: 'Set the IP here of your Kumo router',
+				tooltip: 'Set the IP address of the KUMO router',
 				regex: Regex.IP,
 				width: 12,
 			},
@@ -332,7 +332,7 @@ class AjaKumoInstance extends InstanceBase {
 						default: '1',
 						useVariables: true,
 						allowCustom: true,
-						choices: this.getNameList()
+						choices: this.getNameList('dest')
 					},
 					{
 						type: 'dropdown',
@@ -357,12 +357,11 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'Sets a draft destination and Companion remembers it. Then next, use "Send source" action and this destination will be used.',
 				options: [
 					{
-						type: 'number',
-						label: 'destination number',
+						type: 'dropdown',
+						label: 'Destination',
 						id: 'destination',
-						min: 1,
-						max: 64,
-						default: 1
+						default: '1',
+						choices: this.getNameList()
 					}
 				],
 				callback: (event) => {
@@ -376,19 +375,18 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'Sends a route command with the Source being the one chosen here, and the Destination being the one pre-selected with the action "Pre-select".',
 				options: [
 					{
-						type: 'number',
+						type: 'dropdown',
 						label: 'source number',
 						id: 'source',
-						min: 1,
-						max: 64,
-						default: 1
+						default: 1,
+						choices: this.getNameList()
 					}
 				],
 				callback: async (event) => {
 					const destination = this.getVariableValue('destination');
 					this.selectedSource = event.options.source
 					this.setVariableValues({ source: event.options.source })
-					if(destination) {
+					if (destination) {
 						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
 					this.checkFeedbacks('active_source', 'source_match')
@@ -407,6 +405,7 @@ class AjaKumoInstance extends InstanceBase {
 				],
 				callback: (event) => {
 					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
+					this.checkFeedbacks('source_match')
 				}
 			},
 			swap_sources: {
@@ -433,7 +432,7 @@ class AjaKumoInstance extends InstanceBase {
 					let source_of_dest_B = this.srcToDestMap[event.options.dest_B]
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
-					this.checkFeedbacks('source_match')
+					this.checkFeedbacks('active_destination', 'source_match')
 				}
 			},
 		}
@@ -471,10 +470,11 @@ class AjaKumoInstance extends InstanceBase {
 					bgcolor: combineRgb(255, 0, 0)
 				},
 				options: [{
-					type: 'number',
+					type: 'dropdown',
 					label: 'Destination',
 					id: 'destination',
-					default: 1
+					default: 1,
+					choices: this.getNameList('dest'),
 				}],
 				callback: (feedback) => {
 					return this.selectedDestination == feedback.options.destination
@@ -489,10 +489,11 @@ class AjaKumoInstance extends InstanceBase {
 					bgcolor: combineRgb(255, 0, 0)
 				},
 				options: [{
-					type: 'number',
-					label: 'Source number',
+					type: 'dropdown',
+					label: 'Source',
 					id: 'source',
-					default: 1
+					default: 1,
+					choices: this.getNameList('src'),
 				}],
 				callback: (feedback) => {
 					return this.selectedSource == feedback.options.source
