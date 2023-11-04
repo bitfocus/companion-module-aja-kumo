@@ -529,7 +529,7 @@ class AjaKumoInstance extends InstanceBase {
 					{
 						type: 'dropdown',
 						label: 'Source',
-						id: 'src',
+						id: 'source',
 						default: 1,
 						choices: this.getNameList('src')
 					},
