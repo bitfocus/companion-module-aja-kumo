@@ -210,7 +210,7 @@ class AjaKumoInstance extends InstanceBase {
 
 				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
 				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
-				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} label with number, line 1 and 2`)
+				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
 			}
@@ -276,16 +276,15 @@ class AjaKumoInstance extends InstanceBase {
 
 	// Create a combination string containing number and name lines, separated by newlines
 	setLabelComboVariables(type) {
-		for (var i = 1; i <= this.config[`${type}_count`]; i++) {
+		const combo_variables = {}
+		for (let i = 1; i <= this.config[`${type}_count`]; i++) {
 			if ( i in this.names[`${type}_name`] ) {
-				var label_text
-				label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
-				this.setDynamicVariable(
-					`${type}_${i}_label_combo`,
-					label_text
-				)
+				let variable_name = `${type}_${i}_label_combo`
+				let label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
+				combo_variables[variable_name] = label_text
 			}
 		}
+		this.setVariableValues(combo_variables)
 	}
 
 	setSrcDestName(param, options, value) {
