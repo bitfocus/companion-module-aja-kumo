@@ -61,6 +61,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.actions()
 		this.initFeedbacks()
+		this.initPresets()
 
 		this.connect()
 	}
@@ -177,6 +178,7 @@ class AjaKumoInstance extends InstanceBase {
 
 				this.actions()
 				this.initFeedbacks()
+				this.initPresets()
 				this.watchForNewEvents()
 				this.setLabelComboVariables('dest')
 				this.setLabelComboVariables('src')
@@ -569,6 +571,82 @@ class AjaKumoInstance extends InstanceBase {
 		}
 
 		this.setFeedbackDefinitions(feedbacks)
+	}
+
+	initPresets() {
+		const presets = []
+
+		// Preset for 'Source buttons' and 'Destination buttons'
+		function make_src_dest_button_preset(type, n) {
+			let type_name
+			let actions = []
+			let feedbacks = []
+			if ( type == 'dest' ) {
+				type_name = 'Destination'
+				actions = [
+					{ actionId: 'destination', options: { destination: n } },
+				]
+				feedbacks = [
+					{
+						feedbackId: 'active_destination',
+						options: {
+							destination: n,
+						},
+						style: {
+							color: combineRgb(255, 255, 255),
+							bgcolor: combineRgb(255, 0, 0)
+						}
+					}
+				]
+			}
+			else {
+				type_name = 'Source'
+				actions = [
+					{ actionId: 'source', options: { source: n } },
+				]
+				feedbacks = [
+					{
+						feedbackId: 'source_match',
+						options: {
+							source: n,
+						},
+						style: {
+							color: combineRgb(255, 255, 255),
+							bgcolor: combineRgb(255, 0, 0)
+						}
+					}
+				]
+			}
+			return {
+				category: `${type_name} buttons`,
+				name: `${type_name} ${n}`,
+				type: 'button',
+				style: {
+					text: `$(kumo:${type}_${n}_label_combo)`,
+					size: '18',
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(0, 0, 0),
+					show_topbar: false,
+				},
+				steps: [
+					{
+						down: actions,
+						up: []
+					}
+				],
+				feedbacks: feedbacks,
+			}
+		}
+		// Create for each src & dest in the matrix
+		let destsrc = [ 'dest', 'src' ]
+		destsrc.forEach(type => {
+			for (let i = 1; i <= this.config[`${type}_count`]; ++i) {
+				presets.push( make_src_dest_button_preset( type, i ) )
+			}
+		})
+
+		// Apply presets
+		this.setPresetDefinitions(presets)
 	}
 }
 
