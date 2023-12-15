@@ -342,7 +342,7 @@ class AjaKumoInstance extends InstanceBase {
 		const actions = {
 			route: {
 				name: 'Route a source (input) to a destination (output)',
-				description: 'The primary command for routing. Use to set the Source and the Destination in a single button press.',
+				description: 'For explicitly routing a source to a destination. Used to perform a route in a single button press.',
 				options: [
 					{
 						type: 'dropdown',
