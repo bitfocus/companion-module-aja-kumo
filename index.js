@@ -380,7 +380,7 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'Destination',
 						id: 'destination',
 						default: '1',
-						choices: this.getNameList()
+						choices: this.getNameList('dest')
 					}
 				],
 				callback: (event) => {
@@ -398,7 +398,7 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'source number',
 						id: 'source',
 						default: 1,
-						choices: this.getNameList()
+						choices: this.getNameList('src')
 					}
 				],
 				callback: async (event) => {
