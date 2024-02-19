@@ -63,6 +63,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.actions()
 		this.initFeedbacks()
+		this.initPresets()
 
 		this.connect()
 	}
@@ -129,14 +130,14 @@ class AjaKumoInstance extends InstanceBase {
 
 	device_reset() {
 		this.connectionId = null
+		this.reconnectTimeout = null
+		this.srcToDestMap = {}
 
 		this.selectedDestination = null
 		this.selectedSource = null
-		this.reconnectTimeout = null
-		this.srcToDestMap = []
 		this.variables = [
 			{ variableId: 'destination', name: 'Current pre-selected destination' },
-			{ variableId: 'source', name: 'Currently pre-selected source' }
+			{ variableId: 'source', name: 'Current pre-selected source' }
 		]
 	}
 
@@ -179,7 +180,10 @@ class AjaKumoInstance extends InstanceBase {
 
 				this.actions()
 				this.initFeedbacks()
+				this.initPresets()
 				this.watchForNewEvents()
+				this.setLabelComboVariables('dest')
+				this.setLabelComboVariables('src')
 			}).catch(x => {
 				if (this.connectionId === parsedResponse.connectionid) {
 					// If connection is disabled before all promises, we don't want to try reconnecting
@@ -210,6 +214,7 @@ class AjaKumoInstance extends InstanceBase {
 
 				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
 				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
 				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
 			}
@@ -273,6 +278,19 @@ class AjaKumoInstance extends InstanceBase {
 		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
 	}
 
+	// Create a combination string containing number and name lines, separated by newlines
+	setLabelComboVariables(type) {
+		const combo_variables = {}
+		for (let i = 1; i <= this.config[`${type}_count`]; i++) {
+			if ( i in this.names[`${type}_name`] ) {
+				let variable_name = `${type}_${i}_label_combo`
+				let label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
+				combo_variables[variable_name] = label_text
+			}
+		}
+		this.setVariableValues(combo_variables)
+	}
+
 	setSrcDestName(param, options, value) {
 		let line = parseInt(options.line) - 1
 
@@ -283,6 +301,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.names[param][options.num][line] = value
 
 		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
+
 	}
 
 	// Return config fields for web config
@@ -292,7 +311,7 @@ class AjaKumoInstance extends InstanceBase {
 				type: 'textinput',
 				id: 'ip',
 				label: 'IP Address',
-				tooltip: 'Set the IP here of your Kumo router',
+				tooltip: 'Set the IP address of the KUMO router',
 				regex: Regex.IP,
 				width: 12,
 			},
@@ -325,7 +344,7 @@ class AjaKumoInstance extends InstanceBase {
 		const actions = {
 			route: {
 				name: 'Route a source (input) to a destination (output)',
-				description: 'The primary command for routing. Use to set the Source and the Destination in a single button press.',
+				description: 'For explicitly routing a source to a destination. Used to perform a route in a single button press.',
 				options: [
 					{
 						type: 'dropdown',
@@ -334,7 +353,7 @@ class AjaKumoInstance extends InstanceBase {
 						default: '1',
 						useVariables: true,
 						allowCustom: true,
-						choices: this.getNameList()
+						choices: this.getNameList('dest')
 					},
 					{
 						type: 'dropdown',
@@ -359,12 +378,11 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'Sets a draft destination and Companion remembers it. Then next, use "Send source" action and this destination will be used.',
 				options: [
 					{
-						type: 'number',
-						label: 'destination number',
+						type: 'dropdown',
+						label: 'Destination',
 						id: 'destination',
-						min: 1,
-						max: 64,
-						default: 1
+						default: '1',
+						choices: this.getNameList('dest')
 					}
 				],
 				callback: (event) => {
@@ -378,19 +396,18 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'Sends a route command with the Source being the one chosen here, and the Destination being the one pre-selected with the action "Pre-select".',
 				options: [
 					{
-						type: 'number',
+						type: 'dropdown',
 						label: 'source number',
 						id: 'source',
-						min: 1,
-						max: 64,
-						default: 1
+						default: 1,
+						choices: this.getNameList('src')
 					}
 				],
 				callback: async (event) => {
 					const destination = this.getVariableValue('destination');
 					this.selectedSource = event.options.source
 					this.setVariableValues({ source: event.options.source })
-					if(destination) {
+					if (destination) {
 						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
 					this.checkFeedbacks('active_source', 'source_match')
@@ -409,6 +426,7 @@ class AjaKumoInstance extends InstanceBase {
 				],
 				callback: (event) => {
 					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
+					this.checkFeedbacks('source_match')
 				}
 			},
 			swap_sources: {
@@ -435,7 +453,7 @@ class AjaKumoInstance extends InstanceBase {
 					let source_of_dest_B = this.srcToDestMap[event.options.dest_B]
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
-					this.checkFeedbacks('source_match')
+					this.checkFeedbacks('active_destination', 'source_match')
 				}
 			},
 		}
@@ -473,10 +491,11 @@ class AjaKumoInstance extends InstanceBase {
 					bgcolor: combineRgb(255, 0, 0)
 				},
 				options: [{
-					type: 'number',
+					type: 'dropdown',
 					label: 'Destination',
 					id: 'destination',
-					default: 1
+					default: 1,
+					choices: this.getNameList('dest'),
 				}],
 				callback: (feedback) => {
 					return this.selectedDestination == feedback.options.destination
@@ -491,10 +510,11 @@ class AjaKumoInstance extends InstanceBase {
 					bgcolor: combineRgb(255, 0, 0)
 				},
 				options: [{
-					type: 'number',
-					label: 'Source number',
+					type: 'dropdown',
+					label: 'Source',
 					id: 'source',
-					default: 1
+					default: 1,
+					choices: this.getNameList('src'),
 				}],
 				callback: (feedback) => {
 					return this.selectedSource == feedback.options.source
@@ -512,7 +532,7 @@ class AjaKumoInstance extends InstanceBase {
 					{
 						type: 'dropdown',
 						label: 'Source',
-						id: 'src',
+						id: 'source',
 						default: 1,
 						choices: this.getNameList('src')
 					},
@@ -553,6 +573,82 @@ class AjaKumoInstance extends InstanceBase {
 		}
 
 		this.setFeedbackDefinitions(feedbacks)
+	}
+
+	initPresets() {
+		const presets = []
+
+		// Preset for 'Source buttons' and 'Destination buttons'
+		function make_src_dest_button_preset(type, n) {
+			let type_name
+			let actions = []
+			let feedbacks = []
+			if ( type == 'dest' ) {
+				type_name = 'Destination'
+				actions = [
+					{ actionId: 'destination', options: { destination: n } },
+				]
+				feedbacks = [
+					{
+						feedbackId: 'active_destination',
+						options: {
+							destination: n,
+						},
+						style: {
+							color: combineRgb(255, 255, 255),
+							bgcolor: combineRgb(255, 0, 0)
+						}
+					}
+				]
+			}
+			else {
+				type_name = 'Source'
+				actions = [
+					{ actionId: 'source', options: { source: n } },
+				]
+				feedbacks = [
+					{
+						feedbackId: 'source_match',
+						options: {
+							source: n,
+						},
+						style: {
+							color: combineRgb(255, 255, 255),
+							bgcolor: combineRgb(255, 0, 0)
+						}
+					}
+				]
+			}
+			return {
+				category: `${type_name} buttons`,
+				name: `${type_name} ${n}`,
+				type: 'button',
+				style: {
+					text: `$(kumo:${type}_${n}_label_combo)`,
+					size: '18',
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(0, 0, 0),
+					show_topbar: false,
+				},
+				steps: [
+					{
+						down: actions,
+						up: []
+					}
+				],
+				feedbacks: feedbacks,
+			}
+		}
+		// Create for each src & dest in the matrix
+		let destsrc = [ 'dest', 'src' ]
+		destsrc.forEach(type => {
+			for (let i = 1; i <= this.config[`${type}_count`]; ++i) {
+				presets.push( make_src_dest_button_preset( type, i ) )
+			}
+		})
+
+		// Apply presets
+		this.setPresetDefinitions(presets)
 	}
 }
 
