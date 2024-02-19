@@ -30,7 +30,9 @@ class AjaKumoInstance extends InstanceBase {
 			this.watchForNewEvents()
 		})
 		.catch(e => {
-			this.log('error', `Error with new event ${e.message}`)
+			this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
+			// Attempt to reconnect since things could now be out of sync with the device
+			this.disconnect(true)
 		})
 	}
 
