@@ -12,7 +12,7 @@ class AjaKumoInstance extends InstanceBase {
 		const request_con_id = this.connectionId
 		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
 
-		got.get(url, {cookieJar: this.cookieJar}).then(response => {
+		got.get(url, {cookieJar: this.cookieJar, timeout: { request: 10000 }}).then(response => {
 			if (this.connectionId === null) return // do not return an error here, since the kumo keeps old connections open for a second
 			else if (request_con_id !== this.connectionId) return // this request came from an old connection
 
@@ -31,7 +31,11 @@ class AjaKumoInstance extends InstanceBase {
 			this.watchForNewEvents()
 		})
 		.catch(e => {
-			this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
+			if (e.code === "ETIMEDOUT") {
+				this.log('error', 'Lost connection for 10000ms, attempting to reconnect')
+			} else {
+				this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
+			}
 			// Attempt to reconnect since things could now be out of sync with the device
 			this.disconnect(true)
 		})
