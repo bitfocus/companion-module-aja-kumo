@@ -41,7 +41,7 @@ class AjaKumoInstance extends InstanceBase {
 		if(this.config.ip === config.ip &&
 			this.config.src_count === config.src_count &&
 			this.config.dest_count === config.dest_count &&
-		    this.config.password === config.password) return // Nothing updated
+			this.config.password === config.password) return // Nothing updated
 
 		this.disconnect()
 
@@ -153,14 +153,14 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.updateStatus('connecting')
 
-		const url = `http://${this.config.ip}/config?action=connect&configid=0`
 		const ip = this.config.ip
+		const url = `http://${ip}/config?action=connect&configid=0`
 		const password = this.config.password
 
 		if (password) {
 			this.log('debug', 'Attemting to get auth cookies')
 			const authResponse = await got
-				.post(`http://${this.config.ip}/authenticator/login`, {
+				.post(`http://${ip}/authenticator/login`, {
 					form: {
 						password_provided: password,
 					},
