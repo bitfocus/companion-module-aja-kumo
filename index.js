@@ -162,7 +162,7 @@ class AjaKumoInstance extends InstanceBase {
 		const password = this.config.password
 
 		if (password) {
-			this.log('debug', 'Attemting to get auth cookies')
+			this.log('debug', 'Attempting to get auth cookies')
 			const authResponse = await got
 				.post(`http://${ip}/authenticator/login`, {
 					form: {
