@@ -164,16 +164,31 @@ class AjaKumoInstance extends InstanceBase {
 					form: {
 						password_provided: password,
 					},
+					timeout: {
+						request: 3000
+					},
 					cookieJar: this.cookieJar,
 				})
 				.json()
-				.catch((e) =>
-					this.log('error', `Error during authentication: ${e.toString()}`)
-				)
+				.catch((e) => {
+					if (e.code === "ETIMEDOUT") {
+						this.log('error', `Could not reach AJA KUMO at ${ip}`)
+					} else {
+						this.log('error', `Unknown error during authentication: ${e.toString()}`)
+					}
+					this.disconnect(true)
+					this.updateStatus('connection_failure')
+				})
+
+			// Don't continue if original auth request fails, gets retried in the .catch
+			if (!authResponse) return
 
 			if (authResponse.login != 'success') {
 				this.log('error', 'Authentication failed')
-				this.updateStatus('connection_failure')
+				this.log('debug', 'Authentication response: ' + authResponse.login)
+				this.disconnect() // Don't retry until password has been updated
+				this.updateStatus('connection_failure', 'Wrong password')
+				return
 			}
 		}
 
@@ -188,6 +203,19 @@ class AjaKumoInstance extends InstanceBase {
 				if(ip !== this.config.ip) return
 				this.disconnect(true)
 				this.updateStatus('connection_failure')
+				switch (e.code){
+					case 'ETIMEDOUT':
+						this.log('error', `Could not reach AJA KUMO at ${ip}`)
+						break
+					case 'ERR_NON_2XX_3XX_RESPONSE':
+						this.log('error', 'Missing password')
+						this.updateStatus('connection_failure', 'Missing password')
+						// Disable reconnecting until password has been added
+						clearTimeout(this.reconnectTimeout)
+						break
+					default:
+						this.log('error', `Unknown error during connecting: ${e.toString()}`)
+				}
 			})
 		if(!parsedResponse || ip !== this.config.ip) return
 
