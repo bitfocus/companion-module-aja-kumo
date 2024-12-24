@@ -1,4 +1,5 @@
 import got from 'got';
+import { CookieJar } from 'tough-cookie'
 
 import { InstanceBase, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
@@ -11,7 +12,7 @@ class AjaKumoInstance extends InstanceBase {
 		const request_con_id = this.connectionId
 		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
 
-		got.get(url).then(response => {
+		got.get(url, {cookieJar: this.cookieJar, timeout: { request: 10000 }}).then(response => {
 			if (this.connectionId === null) return // do not return an error here, since the kumo keeps old connections open for a second
 			else if (request_con_id !== this.connectionId) return // this request came from an old connection
 
@@ -30,7 +31,11 @@ class AjaKumoInstance extends InstanceBase {
 			this.watchForNewEvents()
 		})
 		.catch(e => {
-			this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
+			if (e.code === "ETIMEDOUT") {
+				this.log('error', 'Lost connection for 10000ms, attempting to reconnect')
+			} else {
+				this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
+			}
 			// Attempt to reconnect since things could now be out of sync with the device
 			this.disconnect(true)
 		})
@@ -39,7 +44,8 @@ class AjaKumoInstance extends InstanceBase {
 	async configUpdated(config) {
 		if(this.config.ip === config.ip &&
 			this.config.src_count === config.src_count &&
-			this.config.dest_count === config.dest_count) return // Nothing updated
+			this.config.dest_count === config.dest_count &&
+			this.config.password === config.password) return // Nothing updated
 
 		this.disconnect()
 
@@ -60,6 +66,8 @@ class AjaKumoInstance extends InstanceBase {
 			src_name: {},
 			salvo: {},
 		}
+
+		this.cookieJar = new CookieJar() // CookieJar for storing auth cookies
 
 		this.actions()
 		this.initFeedbacks()
@@ -103,6 +111,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.updateStatus('disconnected')
 
 		this.connectionId = null
+		this.cookieJar.removeAllCookies()
 
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
@@ -148,19 +157,69 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.updateStatus('connecting')
 
-		const url = `http://${this.config.ip}/config?action=connect&configid=0`
 		const ip = this.config.ip
+		const url = `http://${ip}/config?action=connect&configid=0`
+		const password = this.config.password
+
+		if (password) {
+			this.log('debug', 'Attempting to get auth cookies')
+			const authResponse = await got
+				.post(`http://${ip}/authenticator/login`, {
+					form: {
+						password_provided: password,
+					},
+					timeout: {
+						request: 3000
+					},
+					cookieJar: this.cookieJar,
+				})
+				.json()
+				.catch((e) => {
+					if (e.code === "ETIMEDOUT") {
+						this.log('error', `Could not reach AJA KUMO at ${ip}`)
+					} else {
+						this.log('error', `Unknown error during authentication: ${e.toString()}`)
+					}
+					this.disconnect(true)
+					this.updateStatus('connection_failure')
+				})
+
+			// Don't continue if original auth request fails, gets retried in the .catch
+			if (!authResponse) return
+
+			if (authResponse.login != 'success') {
+				this.log('error', 'Authentication failed')
+				this.log('debug', 'Authentication response: ' + authResponse.login)
+				this.disconnect() // Don't retry until password has been updated
+				this.updateStatus('connection_failure', 'Wrong password')
+				return
+			}
+		}
 
 		const parsedResponse = await got.get(url, {
 			timeout: {
 				request: 3000
-			}
+			},
+			cookieJar: this.cookieJar
 		})
 			.json()
 			.catch(e => {
 				if(ip !== this.config.ip) return
 				this.disconnect(true)
 				this.updateStatus('connection_failure')
+				switch (e.code){
+					case 'ETIMEDOUT':
+						this.log('error', `Could not reach AJA KUMO at ${ip}`)
+						break
+					case 'ERR_NON_2XX_3XX_RESPONSE':
+						this.log('error', 'Missing password')
+						this.updateStatus('connection_failure', 'Missing password')
+						// Disable reconnecting until password has been added
+						clearTimeout(this.reconnectTimeout)
+						break
+					default:
+						this.log('error', `Unknown error during connecting: ${e.toString()}`)
+				}
 			})
 		if(!parsedResponse || ip !== this.config.ip) return
 
@@ -248,7 +307,7 @@ class AjaKumoInstance extends InstanceBase {
 					return reject('Connection aborted.')
 				}
 
-				got.get(url).then((response) => {
+				got.get(url, {cookieJar: this.cookieJar}).then((response) => {
 					// Make sure we're consistent before updating anything, these should be aborted, but could not be...
 					if (connectionId !== this.connectionId) reject()
 
@@ -313,6 +372,13 @@ class AjaKumoInstance extends InstanceBase {
 				label: 'IP Address',
 				tooltip: 'Set the IP address of the KUMO router',
 				regex: Regex.IP,
+				width: 12,
+			},
+			{
+				type: 'textinput',
+				id: 'password',
+				label: 'Password',
+				tooltip: 'Password if authentication is enabled, leave blank if not',
 				width: 12,
 			},
 			{
@@ -464,7 +530,7 @@ class AjaKumoInstance extends InstanceBase {
 	actionCall(id, val, action = 'set') {
 		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
 
-		got.get(url).then(response => {
+		got.get(url, {cookieJar: this.cookieJar}).then(response => {
 			if (this.connectionId === null) reject()
 		})
 		.catch(e => {
