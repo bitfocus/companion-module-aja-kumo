@@ -16,29 +16,29 @@ class AjaKumoInstance extends InstanceBase {
 			if (this.connectionId === null) return // do not return an error here, since the kumo keeps old connections open for a second
 			else if (request_con_id !== this.connectionId) return // this request came from an old connection
 
-			let parsedResponse = JSON.parse(response.body.toString())
+			const parsedResponse = JSON.parse(response.body.toString())
 
 			if (Array.isArray(parsedResponse)) {
 				parsedResponse.forEach((x) => {
 					if(x.param_id) {
-						let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
+						const dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
 						if (dest_update !== null) {
 							this.setSrcToDest(dest_update[1], x.int_value)
 						}
 
-						let dest_line_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Line_([12])/)
+						const dest_line_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Line_([12])/)
 						if (dest_line_update !== null) {
 							this.setSrcDestName('dest_name', { num: dest_line_update[1], line: dest_line_update[2] }, x.str_value)
 							this.setLabelComboVariables('dest')
 						}
 
-						let src_line_update = x.param_id.match(/eParamID_XPT_Source([0-9]{1,2})_Line_([12])/)
+						const src_line_update = x.param_id.match(/eParamID_XPT_Source([0-9]{1,2})_Line_([12])/)
 						if (src_line_update !== null) {
 							this.setSrcDestName('src_name', { num: src_line_update[1], line: src_line_update[2] }, x.str_value)
 							this.setLabelComboVariables('src')
 						}
 
-						let salvo_update = x.param_id.match(/eParamID_Salvo([0-9]{1,2})/)
+						const salvo_update = x.param_id.match(/eParamID_Salvo([0-9]{1,2})/)
 						if (salvo_update !== null) {
 							this.setSalvoName(salvo_update[1], x.str_value.name)
 						}
@@ -94,13 +94,12 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	getNameList(type = 'dest') {
-		let list = []
-		let count = this.config[`${type}_count`]
-		let nameType = `${type}_name`
+		const list = []
+		const count = this.config[`${type}_count`]
+		const nameType = `${type}_name`
 
 		for (let i = 1; i <= count; ++i) {
-			let name
-			name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : i
+			const name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : i
 
 			list.push({
 				id: i,
@@ -112,7 +111,7 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	getSalvoList() {
-		let list = []
+		const list = []
 
 		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
 			list.push({
@@ -246,7 +245,7 @@ class AjaKumoInstance extends InstanceBase {
 		// It could several seconds to get the initial status due to the many status requests we must make
 		// So, we're going to get everything setup, then show the variables so the user doesn't have to wait
 		// And then the vars will be populated as they come in
-		let currentStatus = this.getCurrentStatus()
+		const currentStatus = this.getCurrentStatus()
 		this.initVariables()
 
 		return Promise.all(currentStatus)
@@ -276,11 +275,11 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	getCurrentStatus() {
-		let statusPromises = []
-		let destsrc = ['dest', 'src']
+		const statusPromises = []
+		const destsrc = ['dest', 'src']
 
 		destsrc.forEach(x => {
-			let title = x === 'dest' ? 'Destination' : 'Source'
+			const title = x === 'dest' ? 'Destination' : 'Source'
 
 			for (let i = 1; i <= this.config[`${x}_count`]; ++i) {
 				if (x === 'dest') {
@@ -328,7 +327,7 @@ class AjaKumoInstance extends InstanceBase {
 					// Make sure we're consistent before updating anything, these should be aborted, but could not be...
 					if (connectionId !== this.connectionId) reject()
 
-					let parsedResponse = JSON.parse(response.body.toString())
+					const parsedResponse = JSON.parse(response.body.toString())
 
 					if (param === 'dest') {
 						this.setSrcToDest(options.num, parsedResponse.value)
@@ -359,8 +358,8 @@ class AjaKumoInstance extends InstanceBase {
 		const combo_variables = {}
 		for (let i = 1; i <= this.config[`${type}_count`]; i++) {
 			if ( i in this.names[`${type}_name`] ) {
-				let variable_name = `${type}_${i}_label_combo`
-				let label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
+				const variable_name = `${type}_${i}_label_combo`
+				const label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
 				combo_variables[variable_name] = label_text
 			}
 		}
@@ -368,7 +367,7 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	setSrcDestName(param, options, value) {
-		let line = parseInt(options.line) - 1
+		const line = parseInt(options.line) - 1
 
 		if (!(options.num in this.names[param])) {
 			this.names[param][options.num] = []
@@ -532,8 +531,8 @@ class AjaKumoInstance extends InstanceBase {
 					},
 				],
 				callback: (event) => {
-					let source_of_dest_A = this.srcToDestMap[event.options.dest_A]
-					let source_of_dest_B = this.srcToDestMap[event.options.dest_B]
+					const source_of_dest_A = this.srcToDestMap[event.options.dest_A]
+					const source_of_dest_B = this.srcToDestMap[event.options.dest_B]
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
 					this.checkFeedbacks('active_destination', 'source_match')
@@ -664,14 +663,14 @@ class AjaKumoInstance extends InstanceBase {
 		// Preset for 'Source buttons' and 'Destination buttons'
 		function make_src_dest_button_preset(type, n) {
 			let type_name
-			let actions = []
-			let feedbacks = []
+			const actions = []
+			const feedbacks = []
 			if ( type == 'dest' ) {
 				type_name = 'Destination'
-				actions = [
-					{ actionId: 'destination', options: { destination: n } },
-				]
-				feedbacks = [
+				actions.push(
+					{ actionId: 'destination', options: { destination: n } }
+				)
+				feedbacks.push(
 					{
 						feedbackId: 'active_destination',
 						options: {
@@ -682,14 +681,14 @@ class AjaKumoInstance extends InstanceBase {
 							bgcolor: combineRgb(255, 0, 0)
 						}
 					}
-				]
+				)
 			}
 			else {
 				type_name = 'Source'
-				actions = [
-					{ actionId: 'source', options: { source: n } },
-				]
-				feedbacks = [
+				actions.push(
+					{ actionId: 'source', options: { source: n } }
+				)
+				feedbacks.push(
 					{
 						feedbackId: 'source_match',
 						options: {
@@ -700,7 +699,7 @@ class AjaKumoInstance extends InstanceBase {
 							bgcolor: combineRgb(255, 0, 0)
 						}
 					}
-				]
+				)
 			}
 			return {
 				category: `${type_name} buttons`,
@@ -723,7 +722,7 @@ class AjaKumoInstance extends InstanceBase {
 			}
 		}
 		// Create for each src & dest in the matrix
-		let destsrc = [ 'dest', 'src' ]
+		const destsrc = [ 'dest', 'src' ]
 		destsrc.forEach(type => {
 			for (let i = 1; i <= this.config[`${type}_count`]; ++i) {
 				presets.push( make_src_dest_button_preset( type, i ) )
