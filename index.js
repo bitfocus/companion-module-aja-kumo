@@ -25,6 +25,23 @@ class AjaKumoInstance extends InstanceBase {
 						if (dest_update !== null) {
 							this.setSrcToDest(dest_update[1], x.int_value)
 						}
+
+						let dest_line_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Line_([12])/)
+						if (dest_line_update !== null) {
+							this.setSrcDestName('dest_name', { num: dest_line_update[1], line: dest_line_update[2] }, x.str_value)
+							this.setLabelComboVariables('dest')
+						}
+
+						let src_line_update = x.param_id.match(/eParamID_XPT_Source([0-9]{1,2})_Line_([12])/)
+						if (src_line_update !== null) {
+							this.setSrcDestName('src_name', { num: src_line_update[1], line: src_line_update[2] }, x.str_value)
+							this.setLabelComboVariables('src')
+						}
+
+						let salvo_update = x.param_id.match(/eParamID_Salvo([0-9]{1,2})/)
+						if (salvo_update !== null) {
+							this.setSalvoName(salvo_update[1], x.str_value.name)
+						}
 					}
 				})
 			}
