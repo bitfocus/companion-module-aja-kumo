@@ -2,3 +2,5 @@
 /pkg
 /*.tgz
 .DS_Store
+DEBUG-INSPECT
+.yarn/install-state.gz

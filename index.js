@@ -1,68 +1,91 @@
-import got from 'got';
+import got from 'got'
 import { CookieJar } from 'tough-cookie'
 
 import { InstanceBase, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
 
 class AjaKumoInstance extends InstanceBase {
-	watchForNewEvents() {
-		if (this.connectionId === null) {
+	// interval to re-start event watcher when necessary
+	waitForNewEvents() {
+		while (!this.waitingForNewEvent) {
+			this.getNewEvent()
+		}
+	}
+
+	async getNewEvent() {
+		if (this.connectionId === null && !this.waitingForNewEvent) {
 			return // Do not attempt to connect to a disabled connection
 		}
 		const request_con_id = this.connectionId
 		const url = `http://${this.config.ip}/config?action=wait_for_config_events&configid=0&connectionid=${this.connectionId}`
+		this.waitingForNewEvent = true
 
-		got.get(url, {cookieJar: this.cookieJar, timeout: { request: 10000 }}).then(response => {
-			if (this.connectionId === null) return // do not return an error here, since the kumo keeps old connections open for a second
+		try {
+			const response = await got(url, { cookieJar: this.cookieJar, timeout: { request: 10000 } })
+
+			if (this.connectionId === null)
+				return // do not return an error here, since the kumo keeps old connections open for a second
 			else if (request_con_id !== this.connectionId) return // this request came from an old connection
 
 			const parsedResponse = JSON.parse(response.body.toString())
 
 			if (Array.isArray(parsedResponse)) {
 				parsedResponse.forEach((x) => {
-					if(x.param_id) {
-						const dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
+					this.log('info', `< ${x.param_id}`)
+					let param
+					if (x.param_id) {
+						let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})/)
+						let src_update = x.param_id.match(/eParamID_XPT_Source([0-9]{1,2})/)
+						let salvo_update = x.param_id.match(/eParamID_Salvo([0-9]{1,2})/)
+
 						if (dest_update !== null) {
-							this.setSrcToDest(dest_update[1], x.int_value)
+							//						let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Status/)
+							param = x.param_id.split('_').pop()
+							switch (param) {
+								case 'Status':
+									this.setSrcToDest(dest_update[1], x.int_value)
+									break
+								case 'Locked':
+									this.destination_locked[dest_update[1]] = x.int_value == 1
+									break
+								case '1':
+								case '2':
+									this.setSrcDestName('dest_name', { line: dest_update[1], num: param }, x.str_value)
+									break
+							}
 						}
-
-						const dest_line_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})_Line_([12])/)
-						if (dest_line_update !== null) {
-							this.setSrcDestName('dest_name', { num: dest_line_update[1], line: dest_line_update[2] }, x.str_value)
-							this.setLabelComboVariables('dest')
+						if (src_update !== null) {
+							param = x.param_id.split('_').pop()
+							this.setSrcDestName('src_name', { line: src_update[1], num: param }, x.str_value)
 						}
-
-						const src_line_update = x.param_id.match(/eParamID_XPT_Source([0-9]{1,2})_Line_([12])/)
-						if (src_line_update !== null) {
-							this.setSrcDestName('src_name', { num: src_line_update[1], line: src_line_update[2] }, x.str_value)
-							this.setLabelComboVariables('src')
-						}
-
-						const salvo_update = x.param_id.match(/eParamID_Salvo([0-9]{1,2})/)
 						if (salvo_update !== null) {
 							this.setSalvoName(salvo_update[1], x.str_value.name)
 						}
 					}
 				})
 			}
-			this.watchForNewEvents()
-		})
-		.catch(e => {
-			if (e.code === "ETIMEDOUT") {
+			this.waitingForNewEvent = false
+			//	this.watchForNewEvents() // calling itself without 'returning' will eventually cause a stack overflow
+		} catch (e) {
+			if (e.code === 'ETIMEDOUT') {
 				this.log('error', 'Lost connection for 10000ms, attempting to reconnect')
 			} else {
 				this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
 			}
 			// Attempt to reconnect since things could now be out of sync with the device
 			this.disconnect(true)
-		})
+			this.waitingForNewEvent = false
+		}
 	}
 
 	async configUpdated(config) {
-		if(this.config.ip === config.ip &&
+		if (
+			this.config.ip === config.ip &&
 			this.config.src_count === config.src_count &&
 			this.config.dest_count === config.dest_count &&
-			this.config.password === config.password) return // Nothing updated
+			this.config.password === config.password
+		)
+			return // Nothing updated
 
 		this.disconnect()
 
@@ -77,6 +100,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.RECONNECT_TIME = 5 // Attempt a reconnect every 5 seconds
 		this.CONNWAIT = 10 // Time to wait between each status connection (if 64x64, there will be 64*3 + 64*2 http conns made on enable)
 		this.SALVO_COUNT = 8 // Number of salvos; currently, every Kumo model has 8 salvos
+		this.waitingForNewEvent = false
 
 		this.names = {
 			dest_name: {},
@@ -103,7 +127,7 @@ class AjaKumoInstance extends InstanceBase {
 
 			list.push({
 				id: i,
-				label: name
+				label: name,
 			})
 		}
 
@@ -116,7 +140,7 @@ class AjaKumoInstance extends InstanceBase {
 		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
 			list.push({
 				id: i,
-				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : i
+				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : i,
 			})
 		}
 
@@ -131,6 +155,12 @@ class AjaKumoInstance extends InstanceBase {
 
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
+			delete this.reconnectTimeout
+		}
+
+		if (this.eventPoll) {
+			clearInterval(this.eventPoll)
+			delete this.eventPoll
 		}
 
 		if (reconnect) {
@@ -147,7 +177,7 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	setDynamicVariable(name, value) {
-		const variable = {};
+		const variable = {}
 		variable[name] = value
 
 		this.setVariableValues(variable)
@@ -157,19 +187,24 @@ class AjaKumoInstance extends InstanceBase {
 		this.connectionId = null
 		this.reconnectTimeout = null
 		this.srcToDestMap = {}
+		this.destination_locked = {}
 
 		this.selectedDestination = null
 		this.selectedSource = null
+		if (this.eventPoll) {
+			clearInterval(this.eventPoll)
+			delete this.eventPoll
+		}
 		this.variables = [
 			{ variableId: 'destination', name: 'Current pre-selected destination' },
-			{ variableId: 'source', name: 'Current pre-selected source' }
+			{ variableId: 'source', name: 'Current pre-selected source' },
 		]
 	}
 
 	async connect() {
 		this.device_reset()
 
-		if(!this.config.ip) return
+		if (!this.config.ip) return
 
 		this.updateStatus('connecting')
 
@@ -179,28 +214,29 @@ class AjaKumoInstance extends InstanceBase {
 
 		if (password) {
 			this.log('debug', 'Attempting to get auth cookies')
-			const authResponse = await got
-				.post(`http://${ip}/authenticator/login`, {
-					form: {
-						password_provided: password,
-					},
-					timeout: {
-						request: 3000
-					},
-					cookieJar: this.cookieJar,
-				})
-				.json()
-				.catch((e) => {
-					if (e.code === "ETIMEDOUT") {
-						this.log('error', `Could not reach AJA KUMO at ${ip}`)
-					} else {
-						this.log('error', `Unknown error during authentication: ${e.toString()}`)
-					}
-					this.disconnect(true)
-					this.updateStatus('connection_failure')
-				})
+			try {
+				const authResponse = await got
+					.post(`http://${ip}/authenticator/login`, {
+						form: {
+							password_provided: password,
+						},
+						timeout: {
+							request: 3000,
+						},
+						cookieJar: this.cookieJar,
+					})
+					.json()
+			} catch (e) {
+				if (e.code === 'ETIMEDOUT') {
+					this.log('error', `Could not reach AJA KUMO at ${ip}`)
+				} else {
+					this.log('error', `Unknown error during authentication: ${e.toString()}`)
+				}
+				this.disconnect(true)
+				this.updateStatus('connection_failure')
+			}
 
-			// Don't continue if original auth request fails, gets retried in the .catch
+			// Don't continue if original auth request fails, gets retried in the catch
 			if (!authResponse) return
 
 			if (authResponse.login != 'success') {
@@ -212,34 +248,36 @@ class AjaKumoInstance extends InstanceBase {
 			}
 		}
 
-		const parsedResponse = await got.get(url, {
-			timeout: {
-				request: 3000
-			},
-			cookieJar: this.cookieJar
-		})
-			.json()
-			.catch(e => {
-				if(ip !== this.config.ip) return
-				this.disconnect(true)
-				this.updateStatus('connection_failure')
-				switch (e.code){
-					case 'ETIMEDOUT':
-						this.log('error', `Could not reach AJA KUMO at ${ip}`)
-						break
-					case 'ERR_NON_2XX_3XX_RESPONSE':
-						this.log('error', 'Missing password')
-						this.updateStatus('connection_failure', 'Missing password')
-						// Disable reconnecting until password has been added
-						clearTimeout(this.reconnectTimeout)
-						break
-					default:
-						this.log('error', `Unknown error during connecting: ${e.toString()}`)
-				}
-			})
-		if(!parsedResponse || ip !== this.config.ip) return
+		try {
+			const parsedResponse = await got(url, {
+				timeout: {
+					request: 3000,
+				},
+				cookieJar: this.cookieJar,
+			}).json()
 
-		this.connectionId = parsedResponse.connectionid
+			if (!parsedResponse || ip !== this.config.ip) return
+
+			this.connectionId = parsedResponse.connectionid
+		} catch (e) {
+			if (ip !== this.config.ip) return
+			this.disconnect(true)
+			this.updateStatus('connection_failure')
+			switch (e.code) {
+				case 'ETIMEDOUT':
+					this.log('error', `Could not reach AJA KUMO at ${ip}`)
+					break
+				case 'ERR_NON_2XX_3XX_RESPONSE':
+					this.log('error', 'Missing password')
+					this.updateStatus('connection_failure', 'Missing password')
+					// Disable reconnecting until password has been added
+					clearTimeout(this.reconnectTimeout)
+					break
+				default:
+					this.log('error', `Unknown error during connecting: ${e.toString()}`)
+			}
+		}
+
 		this.updateStatus('ok', 'Loading status...')
 
 		// It could several seconds to get the initial status due to the many status requests we must make
@@ -256,10 +294,13 @@ class AjaKumoInstance extends InstanceBase {
 				this.actions()
 				this.initFeedbacks()
 				this.initPresets()
-				this.watchForNewEvents()
+				// this.watchForNewEvents()
+				this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
+
 				this.setLabelComboVariables('dest')
 				this.setLabelComboVariables('src')
-			}).catch(x => {
+			})
+			.catch((x) => {
 				if (this.connectionId === parsedResponse.connectionid) {
 					// If connection is disabled before all promises, we don't want to try reconnecting
 					this.disconnect(true)
@@ -270,7 +311,7 @@ class AjaKumoInstance extends InstanceBase {
 	createVariable(name, label) {
 		this.variables.push({
 			variableId: name,
-			name: label
+			name: label,
 		})
 	}
 
@@ -278,13 +319,15 @@ class AjaKumoInstance extends InstanceBase {
 		const statusPromises = []
 		const destsrc = ['dest', 'src']
 
-		destsrc.forEach(x => {
-			const title = x === 'dest' ? 'Destination' : 'Source'
+		destsrc.forEach((x) => {
+			let title = x === 'dest' ? 'Destination' : 'Source'
 
 			for (let i = 1; i <= this.config[`${x}_count`]; ++i) {
 				if (x === 'dest') {
 					this.createVariable(`dest_${i}`, `Destination ${i} source`)
+					this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
 					statusPromises.push(this.getParam('dest', { num: i }, statusPromises.length * this.CONNWAIT))
+					statusPromises.push(this.getParam('locked', { num: i }, statusPromises.length * this.CONNWAIT))
 				}
 
 				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
@@ -307,14 +350,22 @@ class AjaKumoInstance extends InstanceBase {
 		const connectionId = this.connectionId
 		let url
 
-		if (param === 'dest') {
-			url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Status`)
-		} else if (param === 'dest_name') {
-			url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Line_${options.line}`)
-		} else if (param === 'src_name') {
-			url = this.buildParamIdUrl(`eParamID_XPT_Source${options.num}_Line_${options.line}`)
-		} else if (param === 'salvo') {
-			url = this.buildParamIdUrl(`eParamID_Salvo${options.num}`)
+		switch (param) {
+			case 'dest':
+				url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Status`)
+				break
+			case 'dest_name':
+				url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Line_${options.line}`)
+				break
+			case 'src_name':
+				url = this.buildParamIdUrl(`eParamID_XPT_Source${options.num}_Line_${options.line}`)
+				break
+			case 'salvo':
+				url = this.buildParamIdUrl(`eParamID_Salvo${options.num}`)
+				break
+			case 'locked':
+				url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Locked`)
+				break
 		}
 
 		return new Promise((resolve, reject) => {
@@ -323,23 +374,36 @@ class AjaKumoInstance extends InstanceBase {
 					return reject('Connection aborted.')
 				}
 
-				got.get(url, {cookieJar: this.cookieJar}).then((response) => {
-					// Make sure we're consistent before updating anything, these should be aborted, but could not be...
-					if (connectionId !== this.connectionId) reject()
+				got
+					.get(url, { cookieJar: this.cookieJar })
+					.then((response) => {
+						// Make sure we're consistent before updating anything, these should be aborted, but could not be...
+						if (connectionId !== this.connectionId) reject()
 
-					const parsedResponse = JSON.parse(response.body.toString())
+						let parsedResponse = JSON.parse(response.body.toString())
 
-					if (param === 'dest') {
-						this.setSrcToDest(options.num, parsedResponse.value)
-					} else if (param === 'dest_name' || param === 'src_name') {
-						this.setSrcDestName(param, options, parsedResponse.value)
-					} else if (param === 'salvo' && parsedResponse.value && parsedResponse.value.name) {
-						this.setSalvoName(options.num, parsedResponse.value.name)
-					}
-					resolve()
-				}).catch(x => {
-					reject(x.message)
-				})
+						switch (param) {
+							case 'dest':
+								this.setSrcToDest(options.num, parsedResponse.value)
+								break
+							case 'dest_name':
+							case 'src_name':
+								this.setSrcDestName(param, options, parsedResponse.value)
+								break
+							case 'salvo':
+								this.setSalvoName(options.num, parsedResponse.value.name)
+								break
+							case 'locked':
+								this.setDynamicVariable(`dest_${options.num}_locked`, parsedResponse.value == 1)
+								this.destination_locked[options.num] = parsedResponse.value == 1
+								break
+						}
+
+						resolve()
+					})
+					.catch((x) => {
+						reject(x.message)
+					})
 			}, timewait)
 		})
 	}
@@ -357,9 +421,9 @@ class AjaKumoInstance extends InstanceBase {
 	setLabelComboVariables(type) {
 		const combo_variables = {}
 		for (let i = 1; i <= this.config[`${type}_count`]; i++) {
-			if ( i in this.names[`${type}_name`] ) {
-				const variable_name = `${type}_${i}_label_combo`
-				const label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
+			if (i in this.names[`${type}_name`]) {
+				let variable_name = `${type}_${i}_label_combo`
+				let label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
 				combo_variables[variable_name] = label_text
 			}
 		}
@@ -376,7 +440,6 @@ class AjaKumoInstance extends InstanceBase {
 		this.names[param][options.num][line] = value
 
 		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
-
 	}
 
 	// Return config fields for web config
@@ -412,7 +475,7 @@ class AjaKumoInstance extends InstanceBase {
 				default: 4,
 				tooltip: 'Number of outputs/destinations the router has.',
 				regex: Regex.NUMBER,
-			}
+			},
 		]
 	}
 
@@ -426,7 +489,8 @@ class AjaKumoInstance extends InstanceBase {
 		const actions = {
 			route: {
 				name: 'Route a source (input) to a destination (output)',
-				description: 'For explicitly routing a source to a destination. Used to perform a route in a single button press.',
+				description:
+					'For explicitly routing a source to a destination. Used to perform a route in a single button press.',
 				options: [
 					{
 						type: 'dropdown',
@@ -435,7 +499,7 @@ class AjaKumoInstance extends InstanceBase {
 						default: '1',
 						useVariables: true,
 						allowCustom: true,
-						choices: this.getNameList('dest')
+						choices: this.getNameList('dest'),
 					},
 					{
 						type: 'dropdown',
@@ -444,28 +508,29 @@ class AjaKumoInstance extends InstanceBase {
 						default: '1',
 						useVariables: true,
 						allowCustom: true,
-						choices: this.getNameList('src')
+						choices: this.getNameList('src'),
 					},
 				],
 				callback: async (event) => {
-					const dest = await this.parseVariablesInString(event.options.destination);
-					const src = await this.parseVariablesInString(event.options.source);
+					const dest = await this.parseVariablesInString(event.options.destination)
+					const src = await this.parseVariablesInString(event.options.source)
 
 					this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
 					this.checkFeedbacks('source_match')
-				}
+				},
 			},
 			destination: {
 				name: 'Pre-select a destination',
-				description: 'Sets a draft destination and Companion remembers it. Then next, use "Send source" action and this destination will be used.',
+				description:
+					'Sets a draft destination and Companion remembers it. Then next, use "Send source" action and this destination will be used.',
 				options: [
 					{
 						type: 'dropdown',
 						label: 'Destination',
 						id: 'destination',
 						default: '1',
-						choices: this.getNameList('dest')
-					}
+						choices: this.getNameList('dest'),
+					},
 				],
 				callback: (event) => {
 					this.selectedDestination = event.options.destination
@@ -475,25 +540,26 @@ class AjaKumoInstance extends InstanceBase {
 			},
 			source: {
 				name: 'Send source to the pre-selected destination',
-				description: 'Sends a route command with the Source being the one chosen here, and the Destination being the one pre-selected with the action "Pre-select".',
+				description:
+					'Sends a route command with the Source being the one chosen here, and the Destination being the one pre-selected with the action "Pre-select".',
 				options: [
 					{
 						type: 'dropdown',
 						label: 'source number',
 						id: 'source',
 						default: 1,
-						choices: this.getNameList('src')
-					}
+						choices: this.getNameList('src'),
+					},
 				],
 				callback: async (event) => {
-					const destination = this.getVariableValue('destination');
+					const destination = this.getVariableValue('destination')
 					this.selectedSource = event.options.source
 					this.setVariableValues({ source: event.options.source })
 					if (destination) {
 						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
 					}
 					this.checkFeedbacks('active_source', 'source_match')
-				}
+				},
 			},
 			salvo: {
 				name: 'Take (apply) a salvo',
@@ -503,13 +569,13 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'salvo',
 						id: 'salvo',
 						default: '1',
-						choices: this.getSalvoList()
+						choices: this.getSalvoList(),
 					},
 				],
 				callback: (event) => {
 					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
 					this.checkFeedbacks('source_match')
-				}
+				},
 			},
 			swap_sources: {
 				name: 'Swap sources',
@@ -520,14 +586,14 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'destination A',
 						id: 'dest_A',
 						default: '1',
-						choices: this.getNameList()
+						choices: this.getNameList(),
 					},
 					{
 						type: 'dropdown',
 						label: 'destination B',
 						id: 'dest_B',
 						default: '2',
-						choices: this.getNameList()
+						choices: this.getNameList(),
 					},
 				],
 				callback: (event) => {
@@ -536,29 +602,29 @@ class AjaKumoInstance extends InstanceBase {
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
 					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
 					this.checkFeedbacks('active_destination', 'source_match')
-				}
+				},
 			},
 		}
 
 		this.setActionDefinitions(actions)
 	}
 
-	actionCall(id, val, action = 'set') {
+	async actionCall(id, val, action = 'set') {
 		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
 
-		got.get(url, {cookieJar: this.cookieJar}).then(response => {
-			if (this.connectionId === null) reject()
-		})
-		.catch(e => {
+		try {
+			const response = got(url, { cookieJar: this.cookieJar })
+			if (this.connectionId === null) return
+		} catch (e) {
 			this.log('error', `Failed to send command to device: ${e}`)
-		})
+		}
 	}
 
 	initVariables() {
 		this.setVariableDefinitions(this.variables)
 		this.setVariableValues({
 			destination: 'Not yet selected',
-			source: 'Not yet selected'
+			source: 'Not yet selected',
 		})
 	}
 
@@ -570,18 +636,20 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When a destination button is selected in Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0)
+					bgcolor: combineRgb(255, 0, 0),
 				},
-				options: [{
-					type: 'dropdown',
-					label: 'Destination',
-					id: 'destination',
-					default: 1,
-					choices: this.getNameList('dest'),
-				}],
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Destination',
+						id: 'destination',
+						default: 1,
+						choices: this.getNameList('dest'),
+					},
+				],
 				callback: (feedback) => {
 					return this.selectedDestination == feedback.options.destination
-				}
+				},
 			},
 			active_source: {
 				type: 'boolean',
@@ -589,26 +657,7 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When a source button is selected in Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0)
-				},
-				options: [{
-					type: 'dropdown',
-					label: 'Source',
-					id: 'source',
-					default: 1,
-					choices: this.getNameList('src'),
-				}],
-				callback: (feedback) => {
-					return this.selectedSource == feedback.options.source
-				}
-			},
-			source_match: {
-				type: 'boolean',
-				name: 'Source matches the pre-selected destination',
-				description: 'When this source is routed to the pre-selected destination remembered by Companion.',
-				defaultStyle: {
-					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0)
+					bgcolor: combineRgb(255, 0, 0),
 				},
 				options: [
 					{
@@ -616,12 +665,36 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'Source',
 						id: 'source',
 						default: 1,
-						choices: this.getNameList('src')
+						choices: this.getNameList('src'),
 					},
 				],
 				callback: (feedback) => {
-					return this.selectedDestination in this.srcToDestMap && feedback.options.source == this.srcToDestMap[this.selectedDestination]
-				}
+					return this.selectedSource == feedback.options.source
+				},
+			},
+			source_match: {
+				type: 'boolean',
+				name: 'Source matches the pre-selected destination',
+				description: 'When this source is routed to the pre-selected destination remembered by Companion.',
+				defaultStyle: {
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(255, 0, 0),
+				},
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Source',
+						id: 'source',
+						default: 1,
+						choices: this.getNameList('src'),
+					},
+				],
+				callback: (feedback) => {
+					return (
+						this.selectedDestination in this.srcToDestMap &&
+						feedback.options.source == this.srcToDestMap[this.selectedDestination]
+					)
+				},
 			},
 			destination_match: {
 				type: 'boolean',
@@ -629,7 +702,7 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When routing on this device changes to a specific source and destination.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0)
+					bgcolor: combineRgb(255, 0, 0),
 				},
 				options: [
 					{
@@ -637,20 +710,43 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'Destination',
 						id: 'dest',
 						default: 1,
-						choices: this.getNameList()
+						choices: this.getNameList(),
 					},
 					{
 						type: 'dropdown',
 						label: 'Source',
 						id: 'src',
 						default: 1,
-						choices: this.getNameList('src')
-					}
+						choices: this.getNameList('src'),
+					},
 				],
 				callback: (feedback) => {
-					return feedback.options.dest in this.srcToDestMap
-						&& this.srcToDestMap[feedback.options.dest] == feedback.options.src
-				}
+					return (
+						feedback.options.dest in this.srcToDestMap &&
+						this.srcToDestMap[feedback.options.dest] == feedback.options.src
+					)
+				},
+			},
+			destination_locked: {
+				type: 'boolean',
+				name: 'Specific destination is locked',
+				description: 'When destination is locked to prevent changing.',
+				defaultStyle: {
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(255, 0, 0),
+				},
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Destination',
+						id: 'dest',
+						default: 1,
+						choices: this.getNameList(),
+					},
+				],
+				callback: (feedback) => {
+					return this.destination_locked[feedback.options.dest]
+				},
 			},
 		}
 
@@ -663,14 +759,12 @@ class AjaKumoInstance extends InstanceBase {
 		// Preset for 'Source buttons' and 'Destination buttons'
 		function make_src_dest_button_preset(type, n) {
 			let type_name
-			const actions = []
-			const feedbacks = []
-			if ( type == 'dest' ) {
+			let actions = []
+			let feedbacks = []
+			if (type == 'dest') {
 				type_name = 'Destination'
-				actions.push(
-					{ actionId: 'destination', options: { destination: n } }
-				)
-				feedbacks.push(
+				actions = [{ actionId: 'destination', options: { destination: n } }]
+				feedbacks = [
 					{
 						feedbackId: 'active_destination',
 						options: {
@@ -678,17 +772,14 @@ class AjaKumoInstance extends InstanceBase {
 						},
 						style: {
 							color: combineRgb(255, 255, 255),
-							bgcolor: combineRgb(255, 0, 0)
-						}
-					}
-				)
-			}
-			else {
+							bgcolor: combineRgb(255, 0, 0),
+						},
+					},
+				]
+			} else {
 				type_name = 'Source'
-				actions.push(
-					{ actionId: 'source', options: { source: n } }
-				)
-				feedbacks.push(
+				actions = [{ actionId: 'source', options: { source: n } }]
+				feedbacks = [
 					{
 						feedbackId: 'source_match',
 						options: {
@@ -696,10 +787,10 @@ class AjaKumoInstance extends InstanceBase {
 						},
 						style: {
 							color: combineRgb(255, 255, 255),
-							bgcolor: combineRgb(255, 0, 0)
-						}
-					}
-				)
+							bgcolor: combineRgb(255, 0, 0),
+						},
+					},
+				]
 			}
 			return {
 				category: `${type_name} buttons`,
@@ -715,17 +806,17 @@ class AjaKumoInstance extends InstanceBase {
 				steps: [
 					{
 						down: actions,
-						up: []
-					}
+						up: [],
+					},
 				],
 				feedbacks: feedbacks,
 			}
 		}
 		// Create for each src & dest in the matrix
-		const destsrc = [ 'dest', 'src' ]
-		destsrc.forEach(type => {
+		let destsrc = ['dest', 'src']
+		destsrc.forEach((type) => {
 			for (let i = 1; i <= this.config[`${type}_count`]; ++i) {
-				presets.push( make_src_dest_button_preset( type, i ) )
+				presets.push(make_src_dest_button_preset(type, i))
 			}
 		})
 
