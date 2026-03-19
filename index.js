@@ -1,8 +1,10 @@
 import got from 'got'
 import { CookieJar } from 'tough-cookie'
 
-import { InstanceBase, Regex, combineRgb, runEntrypoint } from '@companion-module/base'
+import { InstanceBase, Regex, combineRgb, runEntrypoint, InstanceStatus } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
+import { minimist } from 'zx'
+import { collapseTextChangeRangesAcrossMultipleVersions } from 'typescript'
 
 class AjaKumoInstance extends InstanceBase {
 	// interval to re-start event watcher when necessary
@@ -31,7 +33,7 @@ class AjaKumoInstance extends InstanceBase {
 
 			if (Array.isArray(parsedResponse)) {
 				parsedResponse.forEach((x) => {
-					this.log('info', `< ${x.param_id}`)
+					// this.log('info', `< ${x.param_id}`)
 					let param
 					if (x.param_id) {
 						let dest_update = x.param_id.match(/eParamID_XPT_Destination([0-9]{1,2})/)
@@ -73,7 +75,7 @@ class AjaKumoInstance extends InstanceBase {
 				this.log('error', `Error with new event: ${e.message}, will attempt to reconnect...`)
 			}
 			// Attempt to reconnect since things could now be out of sync with the device
-			this.disconnect(true)
+			await this.disconnect(true)
 			this.waitingForNewEvent = false
 		}
 	}
@@ -87,11 +89,11 @@ class AjaKumoInstance extends InstanceBase {
 		)
 			return // Nothing updated
 
-		this.disconnect()
+		await this.disconnect()
 
 		this.config = config
 
-		this.connect()
+		await this.connect()
 	}
 
 	async init(config) {
@@ -114,7 +116,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.initFeedbacks()
 		this.initPresets()
 
-		this.connect()
+		await this.connect()
 	}
 
 	getNameList(type = 'dest') {
@@ -147,7 +149,7 @@ class AjaKumoInstance extends InstanceBase {
 		return list
 	}
 
-	disconnect(reconnect = false) {
+	async disconnect(reconnect = false) {
 		this.updateStatus('disconnected')
 
 		this.connectionId = null
@@ -232,8 +234,8 @@ class AjaKumoInstance extends InstanceBase {
 				} else {
 					this.log('error', `Unknown error during authentication: ${e.toString()}`)
 				}
-				this.disconnect(true)
-				this.updateStatus('connection_failure')
+				await this.disconnect()
+				this.updateStatus(InstanceStatus.ConnectionFailure, 'Connection_failure')
 			}
 
 			// Don't continue if original auth request fails, gets retried in the catch
@@ -242,8 +244,8 @@ class AjaKumoInstance extends InstanceBase {
 			if (authResponse.login != 'success') {
 				this.log('error', 'Authentication failed')
 				this.log('debug', 'Authentication response: ' + authResponse.login)
-				this.disconnect() // Don't retry until password has been updated
-				this.updateStatus('connection_failure', 'Wrong password')
+				await this.disconnect() // Don't retry until password has been updated
+				this.updateStatus(InstanceStatus.BadConfig, 'Wrong password')
 				return
 			}
 		}
@@ -261,51 +263,50 @@ class AjaKumoInstance extends InstanceBase {
 			this.connectionId = parsedResponse.connectionid
 		} catch (e) {
 			if (ip !== this.config.ip) return
-			this.disconnect(true)
-			this.updateStatus('connection_failure')
+			this.updateStatus(InstanceStatus.ConnectionFailure, 'Connection failure')
 			switch (e.code) {
 				case 'ETIMEDOUT':
 					this.log('error', `Could not reach AJA KUMO at ${ip}`)
 					break
 				case 'ERR_NON_2XX_3XX_RESPONSE':
 					this.log('error', 'Missing password')
-					this.updateStatus('connection_failure', 'Missing password')
+					this.updateStatus(InstanceStatus.BadConfig, 'Missing password')
 					// Disable reconnecting until password has been added
 					clearTimeout(this.reconnectTimeout)
 					break
 				default:
 					this.log('error', `Unknown error during connecting: ${e.toString()}`)
 			}
+			await this.disconnect(true)
 		}
 
-		this.updateStatus('ok', 'Loading status...')
+		this.updateStatus(InstanceStatus.Connecting, 'Loading status...')
 
 		// It could several seconds to get the initial status due to the many status requests we must make
 		// So, we're going to get everything setup, then show the variables so the user doesn't have to wait
 		// And then the vars will be populated as they come in
-		const currentStatus = this.getCurrentStatus()
+		//const currentStatus = this.getCurrentStatus()
+
+		// We need to batch the requests, otherwise frames larger than 32 get pummelled with data requests
+		Promise.allSettled(this.getSalvoStatus())
+
+		const destSrc = ['dest', 'src']
+		destSrc.forEach(async (x) => {
+			let e = this.config[`${x}_count`]
+			for (let d = 1; d < e; d += 8) {
+				const currentStatus = this.getCurrentStatus(x, { from: d, to: Math.min(e, d + 8 - 1) })
+				Promise.allSettled(currentStatus)
+			}
+		})
+
 		this.initVariables()
+		this.updateStatus(InstanceStatus.Ok, 'Connected')
+		this.log('info', `Connected to device, connection ID ${this.connectionId}`)
 
-		return Promise.all(currentStatus)
-			.then(() => {
-				this.updateStatus('ok')
-				this.log('info', `Connected to device, connection ID ${this.connectionId}`)
-
-				this.actions()
-				this.initFeedbacks()
-				this.initPresets()
-				// this.watchForNewEvents()
-				this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
-
-				this.setLabelComboVariables('dest')
-				this.setLabelComboVariables('src')
-			})
-			.catch((x) => {
-				if (this.connectionId === parsedResponse.connectionid) {
-					// If connection is disabled before all promises, we don't want to try reconnecting
-					this.disconnect(true)
-				}
-			})
+		this.actions()
+		this.initFeedbacks()
+		this.initPresets()
+		this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
 	}
 
 	createVariable(name, label) {
@@ -315,29 +316,34 @@ class AjaKumoInstance extends InstanceBase {
 		})
 	}
 
-	getCurrentStatus() {
+	getCurrentStatus(x, range) {
 		const statusPromises = []
-		const destsrc = ['dest', 'src']
 
-		destsrc.forEach((x) => {
-			let title = x === 'dest' ? 'Destination' : 'Source'
+		let title = x === 'dest' ? 'Destination' : 'Source'
 
-			for (let i = 1; i <= this.config[`${x}_count`]; ++i) {
-				if (x === 'dest') {
-					this.createVariable(`dest_${i}`, `Destination ${i} source`)
-					this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
-					statusPromises.push(this.getParam('dest', { num: i }, statusPromises.length * this.CONNWAIT))
-					statusPromises.push(this.getParam('locked', { num: i }, statusPromises.length * this.CONNWAIT))
-				}
-
-				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
-				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
-				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
-				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 1 }, statusPromises.length * this.CONNWAIT))
-				statusPromises.push(this.getParam(`${x}_name`, { num: i, line: 2 }, statusPromises.length * this.CONNWAIT))
+		for (let i = range.from; i <= range.to; ++i) {
+			if (x === 'dest') {
+				this.createVariable(`dest_${i}`, `Destination ${i} source`)
+				this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
+				statusPromises.push(this.getParam('dest', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
+				statusPromises.push(this.getParam('locked', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
 			}
-		})
 
+			this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
+			this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+			this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
+			statusPromises.push(
+				this.getParam(`${x}_name`, { num: i, line: 1 }, range.from * statusPromises.length * this.CONNWAIT)
+			)
+			statusPromises.push(
+				this.getParam(`${x}_name`, { num: i, line: 2 }, range.from * statusPromises.length * this.CONNWAIT)
+			)
+		}
+		return statusPromises
+	}
+
+	getSalvoStatus() {
+		const statusPromises = []
 		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
 			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
 			statusPromises.push(this.getParam('salvo', { num: i }, statusPromises.length * this.CONNWAIT))
@@ -417,29 +423,25 @@ class AjaKumoInstance extends InstanceBase {
 		return `http://${this.config.ip}/config?action=get&configid=0&paramid=${param}`
 	}
 
-	// Create a combination string containing number and name lines, separated by newlines
-	setLabelComboVariables(type) {
-		const combo_variables = {}
-		for (let i = 1; i <= this.config[`${type}_count`]; i++) {
-			if (i in this.names[`${type}_name`]) {
-				let variable_name = `${type}_${i}_label_combo`
-				let label_text = `${i}\n` + this.names[`${type}_name`][i].join('\n')
-				combo_variables[variable_name] = label_text
-			}
-		}
-		this.setVariableValues(combo_variables)
-	}
-
 	setSrcDestName(param, options, value) {
 		const line = parseInt(options.line) - 1
+		let comboText = ''
+		let comboName = param.split('_')[0] + `_${options.num}_label_combo`
 
 		if (!(options.num in this.names[param])) {
 			this.names[param][options.num] = []
 		}
 
 		this.names[param][options.num][line] = value
-
 		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
+		let otherLine = this.names[param][options.num][1 - line] || ''
+
+		if (line == 0) {
+			comboText = value + '\n' + otherLine
+		} else {
+			comboText = otherLine + '\n' + value
+		}
+		this.setDynamicVariable(comboName, comboText)
 	}
 
 	// Return config fields for web config
@@ -481,8 +483,16 @@ class AjaKumoInstance extends InstanceBase {
 
 	// When module gets deleted
 	async destroy() {
-		this.disconnect()
-		this.updateStatus('disconnected')
+		await this.disconnect()
+		if (this.reconnectTimeout) {
+			clearTimeout(this.reconnectTimeout)
+			delete this.reconnectTimeout
+		}
+		if (this.eventPoll) {
+			clearInterval(this.eventPoll)
+			delete this.eventPoll
+		}
+		this.updateStatus(InstanceStatus.Disconnected, 'Disconnected')
 	}
 
 	actions(system) {
