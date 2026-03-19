@@ -3,8 +3,6 @@ import { CookieJar } from 'tough-cookie'
 
 import { InstanceBase, Regex, combineRgb, runEntrypoint, InstanceStatus } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
-import { minimist } from 'zx'
-import { collapseTextChangeRangesAcrossMultipleVersions } from 'typescript'
 
 class AjaKumoInstance extends InstanceBase {
 	// interval to re-start event watcher when necessary
