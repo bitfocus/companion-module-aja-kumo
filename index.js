@@ -3,12 +3,34 @@ import { CookieJar } from 'tough-cookie'
 
 import { InstanceBase, Regex, combineRgb, runEntrypoint, InstanceStatus } from '@companion-module/base'
 import UpgradeScripts from './upgrades.js'
-
 class AjaKumoInstance extends InstanceBase {
+	constructor(internal) {
+		// super-constructor
+		super(internal)
+		this.RECONNECT_TIME = 5 // Attempt a reconnect every 5 seconds
+		this.CONNWAIT = 10 // Time to wait between each status connection (if 64x64, there will be 64*3 + 64*2 http conns made on enable)
+		this.SALVO_COUNT = 8 // Number of salvos; currently, every Kumo model has 8 salvos
+		this.destSrc = ['dest', 'src']
+		this.waitingForNewEvent = false
+		this.needConnect = false
+		this.connecting = false
+
+		this.names = {
+			dest_name: {},
+			src_name: {},
+			salvo: {},
+		}
+
+		this.cookieJar = new CookieJar() // CookieJar for storing auth cookies
+	}
+
 	// interval to re-start event watcher when necessary
 	waitForNewEvents() {
 		while (!this.waitingForNewEvent) {
 			this.getNewEvent()
+		}
+		if (this.needConnect && !this.connecting) {
+			this.connect()
 		}
 	}
 
@@ -97,33 +119,21 @@ class AjaKumoInstance extends InstanceBase {
 	async init(config) {
 		this.config = config
 
-		this.RECONNECT_TIME = 5 // Attempt a reconnect every 5 seconds
-		this.CONNWAIT = 10 // Time to wait between each status connection (if 64x64, there will be 64*3 + 64*2 http conns made on enable)
-		this.SALVO_COUNT = 8 // Number of salvos; currently, every Kumo model has 8 salvos
-		this.waitingForNewEvent = false
+		this.needConnect = true
 
-		this.names = {
-			dest_name: {},
-			src_name: {},
-			salvo: {},
-		}
-
-		this.cookieJar = new CookieJar() // CookieJar for storing auth cookies
-
-		this.actions()
-		this.initFeedbacks()
-		this.initPresets()
-
-		await this.connect()
+		this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
 	}
 
 	getNameList(type = 'dest') {
 		const list = []
 		const count = this.config[`${type}_count`]
 		const nameType = `${type}_name`
+		const nameCount = Object.keys(this.names[nameType]).length
 
-		for (let i = 1; i <= count; ++i) {
-			const name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : i
+		// this.log('debug', `get ${type} list, ${nameCount} names `)
+
+		for (let i = 1; i < count; i++) {
+			const name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : `${i}`
 
 			list.push({
 				id: i,
@@ -137,10 +147,10 @@ class AjaKumoInstance extends InstanceBase {
 	getSalvoList() {
 		const list = []
 
-		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
+		for (let i = 1; i < this.SALVO_COUNT; i++) {
 			list.push({
 				id: i,
-				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : i,
+				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : `${i}`,
 			})
 		}
 
@@ -148,7 +158,8 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	async disconnect(reconnect = false) {
-		this.updateStatus('disconnected')
+		this.connecting = false
+		this.needConnect = false
 
 		this.connectionId = null
 		this.cookieJar.removeAllCookies()
@@ -163,8 +174,10 @@ class AjaKumoInstance extends InstanceBase {
 			delete this.eventPoll
 		}
 
+		this.updateStatus(InstanceStatus.Disconnected, 'Disconnected')
+
 		if (reconnect) {
-			this.reconnectTimeout = setTimeout(this.connect.bind(this), this.RECONNECT_TIME * 1000)
+			this.reconnectTimeout = setTimeout(() => (this.needConnect = true), this.RECONNECT_TIME * 1000)
 		}
 	}
 
@@ -185,12 +198,15 @@ class AjaKumoInstance extends InstanceBase {
 
 	device_reset() {
 		this.connectionId = null
-		this.reconnectTimeout = null
 		this.srcToDestMap = {}
 		this.destination_locked = {}
 
 		this.selectedDestination = null
 		this.selectedSource = null
+		if (this.reconnectTimeout) {
+			clearTimeout(this.reconnectTimeout)
+			delete this.reconnectTimeout
+		}
 		if (this.eventPoll) {
 			clearInterval(this.eventPoll)
 			delete this.eventPoll
@@ -206,7 +222,8 @@ class AjaKumoInstance extends InstanceBase {
 
 		if (!this.config.ip) return
 
-		this.updateStatus('connecting')
+		this.updateStatus(InstanceStatus.Connecting, 'Connecting')
+		this.connecting = true
 
 		const ip = this.config.ip
 		const url = `http://${ip}/config?action=connect&configid=0`
@@ -280,31 +297,77 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.updateStatus(InstanceStatus.Connecting, 'Loading status...')
 
+		this.initVariables()
+
 		// It could several seconds to get the initial status due to the many status requests we must make
 		// So, we're going to get everything setup, then show the variables so the user doesn't have to wait
 		// And then the vars will be populated as they come in
 		//const currentStatus = this.getCurrentStatus()
 
 		// We need to batch the requests, otherwise frames larger than 32 get pummelled with data requests
-		Promise.allSettled(this.getSalvoStatus())
+		this.dataCount = 0
 
-		const destSrc = ['dest', 'src']
-		destSrc.forEach(async (x) => {
-			let e = this.config[`${x}_count`]
-			for (let d = 1; d < e; d += 8) {
-				const currentStatus = this.getCurrentStatus(x, { from: d, to: Math.min(e, d + 8 - 1) })
-				Promise.allSettled(currentStatus)
-			}
+		let initialData = this.getSalvoStatus()
+
+		this.destSrc.forEach((x) => {
+			const e = this.config[`${x}_count`]
+			initialData.push(...this.getCurrentStatus(x, { from: 1, to: e }))
 		})
 
-		this.initVariables()
+		this.dataTotal = initialData.length
+
+		this.log('debug', `Data Total ${this.dataTotal}`)
+		while (initialData.length > 0) {
+			const e = initialData.length
+			let results = []
+			for (let b = 0; b < e; b += 32) {
+				results.push(...(await Promise.allSettled(initialData.slice(b, Math.min(e, b + 32)))))
+			}
+			// rebuild initialData to account for any 'rejected' requests
+			const unresolved = initialData.reduce((acc, item, idx) => {
+				if (results[idx].status == 'rejected') {
+					acc.push(item)
+				}
+				return acc
+			}, [])
+			initialData = [...unresolved]
+		}
+
+		// await Promise.allSettled(this.getSalvoStatus()).then((result) => {
+		// 	this.dataCount += result.length
+		// 	console.log(JSON.stringify(result))
+		// })
+
+		// this.destSrc.forEach(async (x) => {
+		// 	let e = this.config[`${x}_count`]
+		// 	for (let d = 1; d < e; d += 16) {
+		// 		const currentStatus = this.getCurrentStatus(x, { from: d, to: Math.min(e, d + 16 - 1) })
+		// 		await Promise.allSettled(currentStatus).then((result) => {
+		// 			this.dataCount += result.length
+		// 			console.log(JSON.stringify(result))
+		// 		})
+		// 	}
+		// })
+
+		// // Reusable delay function
+		// const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+		// while (this.dataCount < this.dataTotal) {
+		// 	await delay(15)
+		// }
+
 		this.updateStatus(InstanceStatus.Ok, 'Connected')
 		this.log('info', `Connected to device, connection ID ${this.connectionId}`)
+
+		//		this.srcList = this.getNameList('src')
+		//		this.destList = this.getNameList('dest')
+		//		this.salvoList = this.getSalvoList()
 
 		this.actions()
 		this.initFeedbacks()
 		this.initPresets()
-		this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
+		this.needConnect = false
+		this.connecting = false
 	}
 
 	createVariable(name, label) {
@@ -319,17 +382,12 @@ class AjaKumoInstance extends InstanceBase {
 
 		let title = x === 'dest' ? 'Destination' : 'Source'
 
-		for (let i = range.from; i <= range.to; ++i) {
+		for (let i = range.from; i < range.to; i++) {
 			if (x === 'dest') {
-				this.createVariable(`dest_${i}`, `Destination ${i} source`)
-				this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
 				statusPromises.push(this.getParam('dest', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
 				statusPromises.push(this.getParam('locked', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
 			}
 
-			this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
-			this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
-			this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
 			statusPromises.push(
 				this.getParam(`${x}_name`, { num: i, line: 1 }, range.from * statusPromises.length * this.CONNWAIT)
 			)
@@ -337,13 +395,13 @@ class AjaKumoInstance extends InstanceBase {
 				this.getParam(`${x}_name`, { num: i, line: 2 }, range.from * statusPromises.length * this.CONNWAIT)
 			)
 		}
+		this.log('debug', `returning ${statusPromises.length} promises`)
 		return statusPromises
 	}
 
 	getSalvoStatus() {
 		const statusPromises = []
-		for (let i = 1; i <= this.SALVO_COUNT; ++i) {
-			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+		for (let i = 1; i < this.SALVO_COUNT; i++) {
 			statusPromises.push(this.getParam('salvo', { num: i }, statusPromises.length * this.CONNWAIT))
 		}
 
@@ -403,7 +461,7 @@ class AjaKumoInstance extends InstanceBase {
 								break
 						}
 
-						resolve()
+						resolve(`${param}:${options.num}`)
 					})
 					.catch((x) => {
 						reject(x.message)
@@ -490,10 +548,9 @@ class AjaKumoInstance extends InstanceBase {
 			clearInterval(this.eventPoll)
 			delete this.eventPoll
 		}
-		this.updateStatus(InstanceStatus.Disconnected, 'Disconnected')
 	}
 
-	actions(system) {
+	actions() {
 		const actions = {
 			route: {
 				name: 'Route a source (input) to a destination (output)',
@@ -519,11 +576,11 @@ class AjaKumoInstance extends InstanceBase {
 						choices: this.getNameList('src'),
 					},
 				],
-				callback: async (event) => {
-					const dest = await this.parseVariablesInString(event.options.destination)
-					const src = await this.parseVariablesInString(event.options.source)
+				callback: async (event, context) => {
+					const dest = await context.parseVariablesInString(event.options.destination)
+					const src = await context.parseVariablesInString(event.options.source)
 
-					this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
+					await this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
 					this.checkFeedbacks('source_match')
 				},
 			},
@@ -540,9 +597,9 @@ class AjaKumoInstance extends InstanceBase {
 						choices: this.getNameList('dest'),
 					},
 				],
-				callback: (event) => {
+				callback: async (event, context) => {
 					this.selectedDestination = event.options.destination
-					this.setVariableValues({ destination: event.options.destination })
+					this.setVariableValues({ destination: this.selectedDestination })
 					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
@@ -559,12 +616,12 @@ class AjaKumoInstance extends InstanceBase {
 						choices: this.getNameList('src'),
 					},
 				],
-				callback: async (event) => {
+				callback: async (event, context) => {
 					const destination = this.getVariableValue('destination')
-					this.selectedSource = event.options.source
-					this.setVariableValues({ source: event.options.source })
+					this.selectedSource = await context.parseVariablesInString(event.options.source)
+					this.setVariableValues({ source: this.selectedSource })
 					if (destination) {
-						this.actionCall(`eParamID_XPT_Destination${destination}_Status`, event.options.source)
+						await this.actionCall(`eParamID_XPT_Destination${destination}_Status`, this.selectedSource)
 					}
 					this.checkFeedbacks('active_source', 'source_match')
 				},
@@ -577,11 +634,13 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'salvo',
 						id: 'salvo',
 						default: '1',
+						useVariables: true,
+						allowCustom: true,
 						choices: this.getSalvoList(),
 					},
 				],
-				callback: (event) => {
-					this.actionCall('eParamID_TakeSalvo', event.options.salvo)
+				callback: async (event, context) => {
+					await this.actionCall('eParamID_TakeSalvo', await context.parseVariablesInString(event.options.salvo))
 					this.checkFeedbacks('source_match')
 				},
 			},
@@ -594,21 +653,21 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'destination A',
 						id: 'dest_A',
 						default: '1',
-						choices: this.getNameList(),
+						choices: this.getNameList('dest'),
 					},
 					{
 						type: 'dropdown',
 						label: 'destination B',
 						id: 'dest_B',
 						default: '2',
-						choices: this.getNameList(),
+						choices: this.getNameList('dest'),
 					},
 				],
-				callback: (event) => {
+				callback: async (event) => {
 					const source_of_dest_A = this.srcToDestMap[event.options.dest_A]
 					const source_of_dest_B = this.srcToDestMap[event.options.dest_B]
-					this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
-					this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
+					await this.actionCall(`eParamID_XPT_Destination${event.options.dest_A}_Status`, source_of_dest_B)
+					await this.actionCall(`eParamID_XPT_Destination${event.options.dest_B}_Status`, source_of_dest_A)
 					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
@@ -629,6 +688,24 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	initVariables() {
+		this.destSrc.forEach((x) => {
+			let title = x === 'dest' ? 'Destination' : 'Source'
+
+			for (let i = 1; i < this.config[`${x}_count`]; i++) {
+				if (x === 'dest') {
+					this.createVariable(`dest_${i}`, `Destination ${i} source`)
+					this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
+				}
+
+				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
+				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
+				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
+			}
+		})
+		for (let i = 1; i < this.SALVO_COUNT; i++) {
+			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+		}
+
 		this.setVariableDefinitions(this.variables)
 		this.setVariableValues({
 			destination: 'Not yet selected',
@@ -655,7 +732,7 @@ class AjaKumoInstance extends InstanceBase {
 						choices: this.getNameList('dest'),
 					},
 				],
-				callback: (feedback) => {
+				callback: async (feedback, context) => {
 					return this.selectedDestination == feedback.options.destination
 				},
 			},
@@ -718,7 +795,7 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'Destination',
 						id: 'dest',
 						default: 1,
-						choices: this.getNameList(),
+						choices: this.getNameList('dest'),
 					},
 					{
 						type: 'dropdown',
@@ -749,7 +826,7 @@ class AjaKumoInstance extends InstanceBase {
 						label: 'Destination',
 						id: 'dest',
 						default: 1,
-						choices: this.getNameList(),
+						choices: this.getNameList('dest'),
 					},
 				],
 				callback: (feedback) => {
@@ -821,9 +898,9 @@ class AjaKumoInstance extends InstanceBase {
 			}
 		}
 		// Create for each src & dest in the matrix
-		let destsrc = ['dest', 'src']
-		destsrc.forEach((type) => {
-			for (let i = 1; i <= this.config[`${type}_count`]; ++i) {
+
+		this.destSrc.forEach((type) => {
+			for (let i = 1; i < this.config[`${type}_count`]; i++) {
 				presets.push(make_src_dest_button_preset(type, i))
 			}
 		})
