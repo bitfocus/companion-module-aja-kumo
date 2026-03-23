@@ -1,6 +1,6 @@
 {
 	"name": "aja-kumo",
-	"version": "3.0.1",
+	"version": "3.0.2",
 	"main": "index.js",
 	"type": "module",
 	"scripts": {
@@ -13,11 +13,11 @@
 	},
 	"license": "MIT",
 	"dependencies": {
-		"@companion-module/base": "~1.7.0",
+		"@companion-module/base": "^1.11.2",
 		"got": "^12.3.1",
 		"tough-cookie": "^5.0.0"
 	},
 	"devDependencies": {
-		"@companion-module/tools": "^2.6.1"
+		"@companion-module/tools": "^2.1.0"
 	}
 }
