@@ -138,7 +138,7 @@ class AjaKumoInstance extends InstanceBase {
 			const name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : `${i}`
 
 			list.push({
-				id: i,
+				id: `${i}`,
 				label: name,
 			})
 		}
@@ -151,7 +151,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		for (let i = 1; i <= this.SALVO_COUNT; i++) {
 			list.push({
-				id: i,
+				id: `${i}`,
 				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : `${i}`,
 			})
 		}
@@ -543,8 +543,8 @@ class AjaKumoInstance extends InstanceBase {
 					},
 				],
 				callback: async (event, context) => {
-					const dest = await context.parseVariablesInString(event.options.destination)
-					const src = await context.parseVariablesInString(event.options.source)
+					const dest = await context.parseVariablesInString(`${event.options.destination}`)
+					const src = await context.parseVariablesInString(`${event.options.source}`)
 
 					await this.actionCall(`eParamID_XPT_Destination${dest}_Status`, src)
 					this.checkFeedbacks('source_match')
@@ -578,13 +578,13 @@ class AjaKumoInstance extends InstanceBase {
 						type: 'dropdown',
 						label: 'source number',
 						id: 'source',
-						default: 1,
+						default: '1',
 						choices: this.getNameList('src'),
 					},
 				],
 				callback: async (event, context) => {
 					const destination = this.getVariableValue('destination')
-					this.selectedSource = await context.parseVariablesInString(event.options.source)
+					this.selectedSource = await context.parseVariablesInString(`${event.options.source}`)
 					this.setVariableValues({ source: this.selectedSource })
 					if (destination) {
 						await this.actionCall(`eParamID_XPT_Destination${destination}_Status`, this.selectedSource)
@@ -606,7 +606,7 @@ class AjaKumoInstance extends InstanceBase {
 					},
 				],
 				callback: async (event, context) => {
-					await this.actionCall('eParamID_TakeSalvo', await context.parseVariablesInString(event.options.salvo))
+					await this.actionCall('eParamID_TakeSalvo', await context.parseVariablesInString(`${event.options.salvo}`))
 					this.checkFeedbacks('source_match')
 				},
 			},
