@@ -25,17 +25,18 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	// interval to re-start event watcher when necessary
-	waitForNewEvents() {
-		while (!this.waitingForNewEvent) {
-			this.getNewEvent()
+	async waitForNewEvents(self) {
+		if (self.needConnect && !self.connecting) {
+			await self.connect()
 		}
-		if (this.needConnect && !this.connecting) {
-			this.connect()
+		if (!this.waitingForNewEvent) {
+			await self.getNewEvent()
 		}
+		setTimeout(self.waitForNewEvents, 10, self)
 	}
 
 	async getNewEvent() {
-		if (this.connectionId === null && !this.waitingForNewEvent) {
+		if (this.connectionId === null || this.waitingForNewEvent) {
 			return // Do not attempt to connect to a disabled connection
 		}
 		const request_con_id = this.connectionId
@@ -113,7 +114,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.config = config
 
-		await this.connect()
+		this.needConnect = true
 	}
 
 	async init(config) {
@@ -121,7 +122,8 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.needConnect = true
 
-		this.eventPoll = setInterval(() => this.waitForNewEvents(), 10)
+		setTimeout(this.waitForNewEvents, 100, this)
+		//await this.waitForNewEvents(this)
 	}
 
 	getNameList(type = 'dest') {
@@ -132,7 +134,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		// this.log('debug', `get ${type} list, ${nameCount} names `)
 
-		for (let i = 1; i < count; i++) {
+		for (let i = 1; i <= count; i++) {
 			const name = i in this.names[nameType] ? `${i}: ${this.names[nameType][i].join(' ')}` : `${i}`
 
 			list.push({
@@ -147,7 +149,7 @@ class AjaKumoInstance extends InstanceBase {
 	getSalvoList() {
 		const list = []
 
-		for (let i = 1; i < this.SALVO_COUNT; i++) {
+		for (let i = 1; i <= this.SALVO_COUNT; i++) {
 			list.push({
 				id: i,
 				label: i in this.names.salvo ? `${i}: ${this.names.salvo[i]}` : `${i}`,
@@ -167,11 +169,6 @@ class AjaKumoInstance extends InstanceBase {
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
 			delete this.reconnectTimeout
-		}
-
-		if (this.eventPoll) {
-			clearInterval(this.eventPoll)
-			delete this.eventPoll
 		}
 
 		this.updateStatus(InstanceStatus.Disconnected, 'Disconnected')
@@ -207,10 +204,7 @@ class AjaKumoInstance extends InstanceBase {
 			clearTimeout(this.reconnectTimeout)
 			delete this.reconnectTimeout
 		}
-		if (this.eventPoll) {
-			clearInterval(this.eventPoll)
-			delete this.eventPoll
-		}
+
 		this.variables = [
 			{ variableId: 'destination', name: 'Current pre-selected destination' },
 			{ variableId: 'source', name: 'Current pre-selected source' },
@@ -316,11 +310,11 @@ class AjaKumoInstance extends InstanceBase {
 
 		this.dataTotal = initialData.length
 
-		this.log('debug', `Data Total ${this.dataTotal}`)
+		//this.log('debug', `Data Total ${this.dataTotal}`)
 		while (initialData.length > 0) {
 			const e = initialData.length
 			let results = []
-			for (let b = 0; b < e; b += 32) {
+			for (let b = 0; b <= e; b += 32) {
 				results.push(...(await Promise.allSettled(initialData.slice(b, Math.min(e, b + 32)))))
 			}
 			// rebuild initialData to account for any 'rejected' requests
@@ -333,35 +327,8 @@ class AjaKumoInstance extends InstanceBase {
 			initialData = [...unresolved]
 		}
 
-		// await Promise.allSettled(this.getSalvoStatus()).then((result) => {
-		// 	this.dataCount += result.length
-		// 	console.log(JSON.stringify(result))
-		// })
-
-		// this.destSrc.forEach(async (x) => {
-		// 	let e = this.config[`${x}_count`]
-		// 	for (let d = 1; d < e; d += 16) {
-		// 		const currentStatus = this.getCurrentStatus(x, { from: d, to: Math.min(e, d + 16 - 1) })
-		// 		await Promise.allSettled(currentStatus).then((result) => {
-		// 			this.dataCount += result.length
-		// 			console.log(JSON.stringify(result))
-		// 		})
-		// 	}
-		// })
-
-		// // Reusable delay function
-		// const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-
-		// while (this.dataCount < this.dataTotal) {
-		// 	await delay(15)
-		// }
-
 		this.updateStatus(InstanceStatus.Ok, 'Connected')
 		this.log('info', `Connected to device, connection ID ${this.connectionId}`)
-
-		//		this.srcList = this.getNameList('src')
-		//		this.destList = this.getNameList('dest')
-		//		this.salvoList = this.getSalvoList()
 
 		this.actions()
 		this.initFeedbacks()
@@ -371,10 +338,12 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	createVariable(name, label) {
-		this.variables.push({
+		const ret = {
 			variableId: name,
 			name: label,
-		})
+		}
+		this.variables.push(ret)
+		return ret
 	}
 
 	getCurrentStatus(x, range) {
@@ -382,7 +351,7 @@ class AjaKumoInstance extends InstanceBase {
 
 		let title = x === 'dest' ? 'Destination' : 'Source'
 
-		for (let i = range.from; i < range.to; i++) {
+		for (let i = range.from; i <= range.to; i++) {
 			if (x === 'dest') {
 				statusPromises.push(this.getParam('dest', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
 				statusPromises.push(this.getParam('locked', { num: i }, range.from * statusPromises.length * this.CONNWAIT))
@@ -395,13 +364,13 @@ class AjaKumoInstance extends InstanceBase {
 				this.getParam(`${x}_name`, { num: i, line: 2 }, range.from * statusPromises.length * this.CONNWAIT)
 			)
 		}
-		this.log('debug', `returning ${statusPromises.length} promises`)
+		//this.log('debug', `returning ${statusPromises.length} promises`)
 		return statusPromises
 	}
 
 	getSalvoStatus() {
 		const statusPromises = []
-		for (let i = 1; i < this.SALVO_COUNT; i++) {
+		for (let i = 1; i <= this.SALVO_COUNT; i++) {
 			statusPromises.push(this.getParam('salvo', { num: i }, statusPromises.length * this.CONNWAIT))
 		}
 
@@ -481,6 +450,7 @@ class AjaKumoInstance extends InstanceBase {
 
 	setSrcDestName(param, options, value) {
 		const line = parseInt(options.line) - 1
+		const thisLine = value || ''
 		let comboText = ''
 		let comboName = param.split('_')[0] + `_${options.num}_label_combo`
 
@@ -488,14 +458,14 @@ class AjaKumoInstance extends InstanceBase {
 			this.names[param][options.num] = []
 		}
 
-		this.names[param][options.num][line] = value
-		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, value)
+		this.names[param][options.num][line] = thisLine
+		this.setDynamicVariable(`${param}_${options.num}_line${options.line}`, thisLine)
 		let otherLine = this.names[param][options.num][1 - line] || ''
 
 		if (line == 0) {
-			comboText = value + '\n' + otherLine
+			comboText = thisLine + '\n' + otherLine
 		} else {
-			comboText = otherLine + '\n' + value
+			comboText = otherLine + '\n' + thisLine
 		}
 		this.setDynamicVariable(comboName, comboText)
 	}
@@ -543,10 +513,6 @@ class AjaKumoInstance extends InstanceBase {
 		if (this.reconnectTimeout) {
 			clearTimeout(this.reconnectTimeout)
 			delete this.reconnectTimeout
-		}
-		if (this.eventPoll) {
-			clearInterval(this.eventPoll)
-			delete this.eventPoll
 		}
 	}
 
@@ -688,25 +654,34 @@ class AjaKumoInstance extends InstanceBase {
 	}
 
 	initVariables() {
+		let v = {}
+		let initialVars = {}
 		this.destSrc.forEach((x) => {
 			let title = x === 'dest' ? 'Destination' : 'Source'
 
-			for (let i = 1; i < this.config[`${x}_count`]; i++) {
+			for (let i = 1; i <= this.config[`${x}_count`]; i++) {
 				if (x === 'dest') {
-					this.createVariable(`dest_${i}`, `Destination ${i} source`)
-					this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
+					v = this.createVariable(`dest_${i}`, `Destination ${i} source`)
+					initialVars[v.variableId] = 0
+					v = this.createVariable(`dest_${i}_locked`, `Destination ${i} is locked`)
+					initialVars[v.variableId] = false
 				}
 
-				this.createVariable(`${x}_name_${i}_line1`, `${title} ${i} name, line 1`)
-				this.createVariable(`${x}_name_${i}_line2`, `${title} ${i} name, line 2`)
-				this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
+				for (let l = 1; l <= 2; l++) {
+					v = this.createVariable(`${x}_name_${i}_line${l}`, `${title} ${i} name, line ${l}`)
+					initialVars[v.variableId] = ''
+				}
+				v = this.createVariable(`${x}_${i}_label_combo`, `${title} ${i} full label`)
+				initialVars[v.variableId] = '\n'
 			}
 		})
-		for (let i = 1; i < this.SALVO_COUNT; i++) {
-			this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+		for (let i = 1; i <= this.SALVO_COUNT; i++) {
+			v = this.createVariable(`salvo_name_${i}`, `Salvo ${i} name`)
+			initialVars[v.variableId] = `Salvo ${i}`
 		}
 
 		this.setVariableDefinitions(this.variables)
+		this.setVariableValues(initialVars)
 		this.setVariableValues({
 			destination: 'Not yet selected',
 			source: 'Not yet selected',
@@ -900,7 +875,7 @@ class AjaKumoInstance extends InstanceBase {
 		// Create for each src & dest in the matrix
 
 		this.destSrc.forEach((type) => {
-			for (let i = 1; i < this.config[`${type}_count`]; i++) {
+			for (let i = 1; i <= this.config[`${type}_count`]; i++) {
 				presets.push(make_src_dest_button_preset(type, i))
 			}
 		})
