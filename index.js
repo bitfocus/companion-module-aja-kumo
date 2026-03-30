@@ -637,6 +637,41 @@ class AjaKumoInstance extends InstanceBase {
 					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
+			lock: {
+				name: 'Lock/Unlock destination',
+				description: 'Lock or unlock a destination to prevent or allow routing changes.',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Destination',
+						id: 'destination',
+						default: '1',
+						useVariables: true,
+						allowCustom: true,
+						choices: this.getNameList('dest'),
+					},
+					{
+						type: 'dropdown',
+						label: 'Mode',
+						id: 'mode',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Lock' },
+							{ id: '0', label: 'Unlock' },
+							{ id: '2', label: 'Toggle' },
+						],
+					},
+				],
+				callback: async (event, context) => {
+					const dest = await context.parseVariablesInString(`${event.options.destination}`)
+					let value = parseInt(event.options.mode)
+					if (value === 2) {
+						value = this.destination_locked[dest] ? 0 : 1
+					}
+					await this.actionCall(`eParamID_XPT_Destination${dest}_Locked`, value)
+					this.checkFeedbacks('destination_locked')
+				},
+			},
 		}
 
 		this.setActionDefinitions(actions)
