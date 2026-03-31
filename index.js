@@ -70,6 +70,8 @@ class AjaKumoInstance extends InstanceBase {
 									break
 								case 'Locked':
 									this.destination_locked[dest_update[1]] = x.int_value == 1
+									this.setDynamicVariable(`dest_${dest_update[1]}_locked`, x.int_value == 1)
+									this.checkFeedbacks('destination_locked')
 									break
 								case '1':
 								case '2':
