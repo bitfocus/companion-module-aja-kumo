@@ -70,6 +70,8 @@ class AjaKumoInstance extends InstanceBase {
 									break
 								case 'Locked':
 									this.destination_locked[dest_update[1]] = x.int_value == 1
+									this.setDynamicVariable(`dest_${dest_update[1]}_locked`, x.int_value == 1)
+									this.checkFeedbacks('destination_locked')
 									break
 								case '1':
 								case '2':
@@ -637,6 +639,41 @@ class AjaKumoInstance extends InstanceBase {
 					this.checkFeedbacks('active_destination', 'source_match')
 				},
 			},
+			lock: {
+				name: 'Lock/Unlock destination',
+				description: 'Lock or unlock a destination to prevent or allow routing changes.',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Destination',
+						id: 'destination',
+						default: '1',
+						useVariables: true,
+						allowCustom: true,
+						choices: this.getNameList('dest'),
+					},
+					{
+						type: 'dropdown',
+						label: 'Mode',
+						id: 'mode',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Lock' },
+							{ id: '0', label: 'Unlock' },
+							{ id: '2', label: 'Toggle' },
+						],
+					},
+				],
+				callback: async (event, context) => {
+					const dest = await context.parseVariablesInString(`${event.options.destination}`)
+					let value = parseInt(event.options.mode)
+					if (value === 2) {
+						value = this.destination_locked[dest] ? 0 : 1
+					}
+					await this.actionCall(`eParamID_XPT_Destination${dest}_Locked`, value)
+					this.checkFeedbacks('destination_locked')
+				},
+			},
 		}
 
 		this.setActionDefinitions(actions)
@@ -646,10 +683,16 @@ class AjaKumoInstance extends InstanceBase {
 		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
 
 		try {
-			const response = got(url, { cookieJar: this.cookieJar })
+			const response = await got(url, { cookieJar: this.cookieJar })
 			if (this.connectionId === null) return
 		} catch (e) {
-			this.log('error', `Failed to send command to device: ${e}`)
+			if (e.response?.statusCode === 403 && id.includes('_Status')) {
+				this.log('warn', `Device rejected command: ${id}=${val} (Destination locked?)`)
+			} else if (e.code === 'ERR_NON_2XX_3XX_RESPONSE') {
+				this.log('warn', `Device rejected command (${e.response?.statusCode}): ${id}=${val}`)
+			} else {
+				this.log('error', `Failed to send command to device: ${e}`)
+			}
 		}
 	}
 
