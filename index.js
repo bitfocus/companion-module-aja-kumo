@@ -683,10 +683,16 @@ class AjaKumoInstance extends InstanceBase {
 		const url = `http://${this.config.ip}/config?action=${action}&configid=0&paramid=${id}&value=${val}`
 
 		try {
-			const response = got(url, { cookieJar: this.cookieJar })
+			const response = await got(url, { cookieJar: this.cookieJar })
 			if (this.connectionId === null) return
 		} catch (e) {
-			this.log('error', `Failed to send command to device: ${e}`)
+			if (e.response?.statusCode === 403 && id.includes('_Status')) {
+				this.log('warn', `Device rejected command: ${id}=${val} (Destination locked?)`)
+			} else if (e.code === 'ERR_NON_2XX_3XX_RESPONSE') {
+				this.log('warn', `Device rejected command (${e.response?.statusCode}): ${id}=${val}`)
+			} else {
+				this.log('error', `Failed to send command to device: ${e}`)
+			}
 		}
 	}
 
