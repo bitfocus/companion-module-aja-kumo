@@ -2,6 +2,8 @@ import got from 'got'
 import { CookieJar } from 'tough-cookie'
 
 import { InstanceBase, Regex, combineRgb, runEntrypoint, InstanceStatus } from '@companion-module/base'
+import * as CHOICES from './choices.js'
+
 import UpgradeScripts from './upgrades.js'
 class AjaKumoInstance extends InstanceBase {
 	constructor(internal) {
@@ -20,6 +22,7 @@ class AjaKumoInstance extends InstanceBase {
 			src_name: {},
 			salvo: {},
 		}
+		this.globalVars = {}
 
 		this.cookieJar = new CookieJar() // CookieJar for storing auth cookies
 	}
@@ -199,6 +202,7 @@ class AjaKumoInstance extends InstanceBase {
 		this.connectionId = null
 		this.srcToDestMap = {}
 		this.destination_locked = {}
+		this.globalVars = {}
 
 		this.selectedDestination = null
 		this.selectedSource = null
@@ -305,6 +309,11 @@ class AjaKumoInstance extends InstanceBase {
 
 		let initialData = this.getSalvoStatus()
 
+		CHOICES.singleParameters.forEach((x) => {
+			//const url = this.buildParamIdUrl(x.id)
+			initialData.push(this.getParam('global', { id: x.id, desc: x.name }, this.CONNWAIT))
+		})
+
 		this.destSrc.forEach((x) => {
 			const e = this.config[`${x}_count`]
 			initialData.push(...this.getCurrentStatus(x, { from: 1, to: e }))
@@ -399,6 +408,9 @@ class AjaKumoInstance extends InstanceBase {
 			case 'locked':
 				url = this.buildParamIdUrl(`eParamID_XPT_Destination${options.num}_Locked`)
 				break
+			case 'global':
+				url = this.buildParamIdUrl(`eParamID_${options.id}`)
+				break
 		}
 
 		return new Promise((resolve, reject) => {
@@ -430,6 +442,13 @@ class AjaKumoInstance extends InstanceBase {
 								this.setDynamicVariable(`dest_${options.num}_locked`, parsedResponse.value == 1)
 								this.destination_locked[options.num] = parsedResponse.value == 1
 								break
+							case 'global':
+								this.setDynamicVariable(options.id, parsedResponse.value)
+								this.globalVars[options.id] = parsedResponse.value
+								if (options.id == 'KumoProductID') {
+									this.globalVars['KumoProductName'] = parsedResponse.value_name
+									this.setDynamicVariable('KumoProductName', parsedResponse.value_name)
+								}
 						}
 
 						resolve(`${param}:${options.num}`)
@@ -699,6 +718,12 @@ class AjaKumoInstance extends InstanceBase {
 	initVariables() {
 		let v = {}
 		let initialVars = {}
+		CHOICES.singleParameters.forEach((x) => {
+			v = this.createVariable(x.id, x.name)
+			initialVars[v.variableId] = ''
+		})
+		v = this.createVariable('KumoProductName', '')
+		initialVars[v.variableId] = ''
 		this.destSrc.forEach((x) => {
 			let title = x === 'dest' ? 'Destination' : 'Source'
 
@@ -781,7 +806,7 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When this source is routed to the pre-selected destination remembered by Companion.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0),
+					bgcolor: combineRgb(128, 128, 0),
 				},
 				options: [
 					{
@@ -805,7 +830,7 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When routing on this device changes to a specific source and destination.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0),
+					bgcolor: combineRgb(0, 128, 0),
 				},
 				options: [
 					{
@@ -836,7 +861,7 @@ class AjaKumoInstance extends InstanceBase {
 				description: 'When destination is locked to prevent changing.',
 				defaultStyle: {
 					color: combineRgb(255, 255, 255),
-					bgcolor: combineRgb(255, 0, 0),
+					bgcolor: combineRgb(128, 0, 0),
 				},
 				options: [
 					{
