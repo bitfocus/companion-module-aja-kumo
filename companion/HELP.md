@@ -32,6 +32,8 @@ A complete 'matrix' of source and destination buttons can be created that can ap
   - Sends a command to apply a saved salvo.
 - Swap source between two given destinations
   - Nominate a Destination A and B, and the sources between the two will be swapped. Useful for example for swapping the inputs shown on a particular section of a multiviewer.
+- Lock/Unlock a destination
+  - Lock a destination to prevent changing sources
 
 ### Presets
 
@@ -65,7 +67,15 @@ A complete 'matrix' of source and destination buttons can be created that can ap
 - Salvo names:
   - `$(kumo:salvo_name_#)`
 - Destination Locked:
-  - `$(kump:destination_#_locked)`
+  - `$(kumo:destination_#_locked)`
+- Kumo Product ID of attached matrix:
+  - `$(kumo:KumoProductName)`
+- Kumo Product Description:
+  - `$(kumo:KumoProductName)`
+- Actual number of destinations in attached matrix:
+  - `$(kumo:DestinationCount)`
+- Actual number of sources in attached matrix:
+  - `$(kumo:SourceCount)`
 
 ### Feedbacks
 
