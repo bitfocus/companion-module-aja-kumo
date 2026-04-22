@@ -78,13 +78,13 @@ class AjaKumoInstance extends InstanceBase {
 									break
 								case '1':
 								case '2':
-									this.setSrcDestName('dest_name', { line: dest_update[1], num: param }, x.str_value)
+									this.setSrcDestName('dest_name', { num: dest_update[1], line: param }, x.str_value)
 									break
 							}
 						}
 						if (src_update !== null) {
 							param = x.param_id.split('_').pop()
-							this.setSrcDestName('src_name', { line: src_update[1], num: param }, x.str_value)
+							this.setSrcDestName('src_name', { num: src_update[1], line: param }, x.str_value)
 						}
 						if (salvo_update !== null) {
 							this.setSalvoName(salvo_update[1], x.str_value.name)
