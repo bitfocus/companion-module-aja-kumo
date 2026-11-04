@@ -686,11 +686,22 @@ class AjaKumoInstance extends InstanceBase {
 				callback: async (event, context) => {
 					const dest = await context.parseVariablesInString(`${event.options.destination}`)
 					let value = parseInt(event.options.mode)
+					if (isNaN(value)) value = 1 // option missing on an old button config; default to Lock
 					if (value === 2) {
-						value = this.destination_locked[dest] ? 0 : 1
+						// Ask the device rather than trusting cached state, so a toggle can never get stuck
+						const current = await this.refreshLocked(dest)
+						value = current ? 0 : 1
 					}
 					await this.actionCall(`eParamID_XPT_Destination${dest}_Locked`, value)
-					this.checkFeedbacks('destination_locked')
+					// The KUMO does not reliably emit a config event for _Locked, so read it back
+					const after = await this.refreshLocked(dest)
+					if (after !== undefined && after !== (value === 1)) {
+						this.log(
+							'warn',
+							`Destination ${dest}: device ignored ${value === 1 ? 'lock' : 'unlock'} — ` +
+								`eParamID_XPT_Destination${dest}_Locked is still ${after ? 1 : 0}`
+						)
+					}
 				},
 			},
 		}
@@ -704,6 +715,8 @@ class AjaKumoInstance extends InstanceBase {
 		try {
 			const response = await got(url, { cookieJar: this.cookieJar })
 			if (this.connectionId === null) return
+			this.log('debug', `> ${id}=${val} → ${response.statusCode} ${response.body?.toString().slice(0, 200)}`)
+			return response
 		} catch (e) {
 			if (e.response?.statusCode === 403 && id.includes('_Status')) {
 				this.log('warn', `Device rejected command: ${id}=${val} (Destination locked?)`)
@@ -712,6 +725,27 @@ class AjaKumoInstance extends InstanceBase {
 			} else {
 				this.log('error', `Failed to send command to device: ${e}`)
 			}
+		}
+	}
+
+	// Read eParamID_XPT_Destination<dest>_Locked straight from the device and sync
+	// the cached state, variable and feedback. Returns true/false, or undefined on error.
+	async refreshLocked(dest) {
+		try {
+			const response = await got(this.buildParamIdUrl(`eParamID_XPT_Destination${dest}_Locked`), {
+				cookieJar: this.cookieJar,
+			})
+			const parsedResponse = JSON.parse(response.body.toString())
+			const locked = parsedResponse.value == 1
+
+			this.destination_locked[dest] = locked
+			this.setDynamicVariable(`dest_${dest}_locked`, locked)
+			this.checkFeedbacks('destination_locked')
+
+			return locked
+		} catch (e) {
+			this.log('warn', `Could not read lock state of destination ${dest}: ${e.message}`)
+			return undefined
 		}
 	}
 
